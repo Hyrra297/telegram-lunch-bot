@@ -1,0 +1,30 @@
+# Secrets & environment
+.env
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# QR images (uploaded at runtime)
+static/qr/
+
+# Menu images (uploaded at runtime)
+static/menus/
+
+# Claude Code
+.claude/
+
+# IDE
+.vscode/
+.idea/

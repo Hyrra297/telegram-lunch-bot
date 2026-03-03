@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bảng theo dõi cơm</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px 32px 0;
+      box-shadow: 0 2px 12px rgba(102,126,234,.4);
+    }
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding-bottom: 16px;
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+
+    /* ── Admin bar ── */
+    .admin-bar {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .btn-login {
+      padding: 7px 16px; border-radius: 8px;
+      border: 1.5px solid rgba(255,255,255,.6);
+      background: transparent; color: white;
+      font-size: .85rem; font-weight: 600; cursor: pointer;
+      transition: background .2s;
+      text-decoration: none; display: inline-block;
+    }
+    .btn-login:hover { background: rgba(255,255,255,.2); }
+    .admin-badge {
+      background: rgba(255,255,255,.25);
+      color: white; border-radius: 20px;
+      padding: 4px 12px; font-size: .8rem; font-weight: 600;
+    }
+    .btn-logout {
+      padding: 5px 12px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.4);
+      background: transparent; color: rgba(255,255,255,.8);
+      font-size: .78rem; cursor: pointer;
+      text-decoration: none; display: inline-block;
+    }
+    .btn-logout:hover { background: rgba(255,255,255,.15); color: white; }
+
+    /* ── Login modal ── */
+    .modal-backdrop {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,.55); align-items: center; justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: white; border-radius: 16px;
+      padding: 32px 28px; width: 320px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    }
+    .modal h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+    .modal p  { font-size: .85rem; color: #888; margin-bottom: 20px; }
+    .modal input[type=password] {
+      width: 100%; padding: 10px 14px;
+      border: 1.5px solid #e0e0e0; border-radius: 10px;
+      font-size: .95rem; outline: none; margin-bottom: 12px;
+    }
+    .modal input[type=password]:focus { border-color: #667eea; }
+    .modal button[type=submit] {
+      width: 100%; padding: 11px;
+      background: linear-gradient(135deg,#667eea,#764ba2);
+      color: white; border: none; border-radius: 10px;
+      font-size: .95rem; font-weight: 600; cursor: pointer;
+    }
+    .modal button[type=submit]:hover { opacity: .92; }
+    .error-msg { color: #e53e3e; font-size: .82rem; margin-bottom: 8px; }
+    .modal-close {
+      float: right; cursor: pointer; color: #bbb;
+      font-size: 1.3rem; line-height: 1; margin-top: -4px;
+    }
+    .modal-close:hover { color: #555; }
+
+    /* ── Tab bar ── */
+    .tabs { display: flex; gap: 4px; margin-top: 4px; }
+    .tab-btn {
+      padding: 10px 22px;
+      border: none;
+      background: rgba(255,255,255,.15);
+      color: rgba(255,255,255,.8);
+      font-size: .92rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 10px 10px 0 0;
+      transition: background .2s, color .2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .tab-btn:hover { background: rgba(255,255,255,.25); color: white; }
+    .tab-btn.active { background: #f0f2f5; color: #667eea; font-weight: 700; }
+
+    /* ── Main ── */
+    main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+
+    /* ── Tab panels ── */
+    .tab-panel { display: none; flex-direction: column; gap: 20px; }
+    .tab-panel.active { display: flex; }
+
+    /* ── Cards ── */
+    .card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.07);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 16px 22px;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .card-header h2 { font-size: 1rem; font-weight: 600; }
+
+    /* ── Month selector ── */
+    .month-form { display: flex; align-items: center; gap: 8px; }
+    .month-form select {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      font-size: .88rem;
+      background: white;
+      color: #333;
+      cursor: pointer;
+    }
+
+    /* ── Stat grid ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 1px;
+      background: #f0f2f5;
+    }
+    .stat-item { background: white; padding: 18px 20px; text-align: center; }
+    .stat-value { font-size: 1.4rem; font-weight: 700; color: #667eea; }
+    .stat-label { font-size: .78rem; color: #888; margin-top: 4px; }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      background: #f8f9ff;
+      padding: 11px 18px;
+      text-align: left;
+      font-size: .78rem;
+      font-weight: 600;
+      color: #667eea;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    tbody tr { border-bottom: 1px solid #f5f5f5; transition: background .15s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f8f9ff; }
+    td { padding: 13px 18px; font-size: .9rem; vertical-align: top; }
+
+    /* ── Detail matrix table ── */
+    .detail-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .detail-table { border-collapse: collapse; white-space: nowrap; min-width: 100%; }
+    .detail-table thead th {
+      background: #f8f9ff;
+      padding: 8px 12px;
+      text-align: center;
+      font-size: .72rem;
+      font-weight: 600;
+      color: #667eea;
+      border: 1px solid #eef0ff;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .detail-table thead th.col-name {
+      text-align: left;
+      min-width: 120px;
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: #f8f9ff;
+    }
+    .detail-table thead th.col-total {
+      background: #eef0ff;
+      color: #4c51bf;
+    }
+    .detail-table tbody tr { border-bottom: 1px solid #f0f0f0; }
+    .detail-table tbody tr:hover td { background: #f8f9ff; }
+    .detail-table td {
+      padding: 9px 12px;
+      text-align: center;
+      font-size: .85rem;
+      border: 1px solid #f0f0ff;
+      vertical-align: middle;
+    }
+    .detail-table td.td-name {
+      text-align: left;
+      font-weight: 600;
+      color: #1a1a2e;
+      position: sticky;
+      left: 0;
+      background: white;
+      z-index: 1;
+    }
+    .detail-table tbody tr:hover td.td-name { background: #f8f9ff; }
+    .detail-table td.td-paid {
+      color: #e53e3e;
+      font-weight: 600;
+    }
+    .detail-table td.td-empty { color: #ddd; }
+    .detail-table td.td-total {
+      font-weight: 700;
+      color: #4c51bf;
+      background: #f4f5ff;
+    }
+    .detail-table tfoot td {
+      padding: 9px 12px;
+      text-align: center;
+      font-size: .8rem;
+      font-weight: 600;
+      background: #f0f2ff;
+      border: 1px solid #e0e3ff;
+      color: #4c51bf;
+    }
+    .detail-table tfoot td.td-name {
+      text-align: left;
+      position: sticky;
+      left: 0;
+      z-index: 1;
+    }
+    .detail-weekday {
+      display: block;
+      font-size: .65rem;
+      color: #aaa;
+      font-weight: 400;
+    }
+
+    /* ── Rank badges ── */
+    .rank {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: .75rem; font-weight: 700;
+    }
+    .rank-1 { background: #FFD700; color: #7a5c00; }
+    .rank-2 { background: #C0C0C0; color: #555; }
+    .rank-3 { background: #CD7F32; color: #5a3300; }
+    .rank-n { background: #eee; color: #888; }
+
+    .amount { font-weight: 600; color: #e53e3e; }
+    .meal-count { color: #667eea; font-weight: 600; }
+
+    /* ── Pills ── */
+    .pills { display: flex; flex-wrap: wrap; gap: 5px; }
+    .pill {
+      background: #e8eaff; color: #667eea;
+      border-radius: 20px; padding: 3px 10px;
+      font-size: .78rem; font-weight: 500;
+    }
+    .pill.picker { background: #667eea; color: white; }
+
+    /* ── Week grid ── */
+    .week-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      padding: 16px;
+    }
+    .day-card {
+      border-radius: 12px;
+      border: 2px solid #eee;
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 160px;
+    }
+    .day-card.status-open   { border-color: #48bb78; background: #f0fff4; }
+    .day-card.status-closed { border-color: #667eea; background: #f8f9ff; }
+    .day-card.status-none   { border-color: #eee; background: #fafafa; opacity: .65; }
+
+    .day-name { font-size: .78rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: .5px; }
+    .day-date { font-size: 1.1rem; font-weight: 700; color: #1a1a2e; }
+
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 9px; border-radius: 20px;
+      font-size: .72rem; font-weight: 600;
+    }
+    .badge-open   { background: #c6f6d5; color: #276749; }
+    .badge-closed { background: #e8eaff; color: #4c51bf; }
+    .badge-none   { background: #eee; color: #999; }
+
+    .day-voters { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .voter-name { font-size: .82rem; color: #555; }
+    .voter-name.is-picker { color: #667eea; font-weight: 600; }
+    .voter-name.is-picker::before { content: "🛵 "; }
+    .no-vote-text { font-size: .82rem; color: #bbb; font-style: italic; }
+
+    /* ── Menu image ── */
+    .menu-img-wrap {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f0f2f5;
+      cursor: pointer;
+    }
+    .menu-img-wrap img {
+      width: 100%;
+      display: block;
+      border-radius: 8px;
+      transition: opacity .2s;
+    }
+    .menu-img-wrap:hover img { opacity: .85; }
+    .menu-img-overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .2s;
+      background: rgba(0,0,0,.35);
+      color: white; font-size: .8rem; font-weight: 600; gap: 4px;
+    }
+    .menu-img-wrap:hover .menu-img-overlay { opacity: 1; }
+
+    .upload-btn {
+      width: 100%;
+      padding: 7px;
+      border-radius: 8px;
+      border: 1.5px dashed #c0c0c0;
+      background: transparent;
+      color: #999;
+      font-size: .78rem;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+      text-align: center;
+    }
+    .upload-btn:hover { border-color: #667eea; color: #667eea; }
+    .upload-btn.loading { opacity: .5; pointer-events: none; }
+
+    /* Lightbox */
+    .lightbox {
+      display: none; position: fixed; inset: 0; z-index: 999;
+      background: rgba(0,0,0,.85);
+      align-items: center; justify-content: center;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 12px; }
+    .lightbox-close {
+      position: absolute; top: 20px; right: 28px;
+      color: white; font-size: 2rem; cursor: pointer; line-height: 1;
+    }
+
+    .date-cell { white-space: nowrap; color: #555; font-size: .85rem; }
+
+    .empty { padding: 40px; text-align: center; color: #aaa; }
+    .empty .emoji { font-size: 2.5rem; display: block; margin-bottom: 8px; }
+
+    /* ── QR payment tab ── */
+    .qr-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+    .qr-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.07);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .qr-card-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .qr-card-header h3 { font-size: .95rem; font-weight: 600; margin: 0; }
+    .qr-img-area {
+      flex: 1;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      background: #fafafa;
+      min-height: 200px;
+      cursor: pointer;
+    }
+    .qr-img-area img {
+      max-width: 100%; max-height: 300px;
+      border-radius: 8px;
+      transition: opacity .2s;
+    }
+    .qr-img-area:hover img { opacity: .88; }
+    .qr-placeholder {
+      text-align: center; color: #ccc;
+    }
+    .qr-placeholder span { font-size: 3rem; display: block; margin-bottom: 8px; }
+    .qr-placeholder p { font-size: .82rem; }
+    .qr-card-footer { padding: 12px 16px; border-top: 1px solid #f0f0f0; }
+
+    /* Debt summary table */
+    .debt-card { margin-top: 0; }
+
+    /* Total group stat bar */
+    .group-total-bar {
+      display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+      padding: 14px 22px;
+      background: linear-gradient(135deg, #667eea15, #764ba215);
+      border-bottom: 1px solid #e8eaff;
+    }
+    .group-total-bar .gt-item { display: flex; flex-direction: column; gap: 2px; }
+    .group-total-bar .gt-value { font-size: 1.15rem; font-weight: 700; color: #4c51bf; }
+    .group-total-bar .gt-label { font-size: .72rem; color: #888; }
+    .group-total-bar .gt-divider { width: 1px; height: 32px; background: #ddd; }
+
+    /* Paid badge / toggle */
+    .badge-paid   { background: #c6f6d5; color: #276749; }
+    .badge-unpaid { background: #fed7d7; color: #c53030; }
+    .btn-toggle-paid {
+      margin-left: 6px;
+      padding: 2px 9px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      background: white;
+      font-size: .72rem;
+      cursor: pointer;
+      color: #555;
+      transition: background .15s;
+      vertical-align: middle;
+    }
+    .btn-toggle-paid:hover { background: #f0f0f0; }
+    .btn-toggle-paid:disabled { opacity: .5; cursor: default; }
+
+    @media (max-width: 700px) {
+      .qr-grid { grid-template-columns: 1fr; }
+      header { padding: 16px 16px 0; }
+      .week-grid { grid-template-columns: repeat(2, 1fr); }
+      .week-grid .day-card:nth-child(5) { grid-column: span 2; }
+      td, thead th { padding: 10px 12px; }
+      .tab-btn { padding: 9px 12px; font-size: .82rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <h1>🍱 Bảng theo dõi cơm</h1>
+    <div class="admin-bar">
+      {% if is_admin %}
+        <span class="admin-badge">⚙️ Admin</span>
+        <a class="btn-logout" href="/logout">Đăng xuất</a>
+      {% else %}
+        <button class="btn-login" onclick="document.getElementById('login-modal').classList.add('open')">🔐 Đăng nhập</button>
+      {% endif %}
+    </div>
+  </div>
+  <nav class="tabs">
+    <a class="tab-btn {% if tab == 'week' %}active{% endif %}"
+       href="/?tab=week&month={{ month }}">📅 Thực đơn tuần này</a>
+    <a class="tab-btn {% if tab == 'summary' %}active{% endif %}"
+       href="/?tab=summary&month={{ month }}">📊 Tổng kết chi tiêu</a>
+    <a class="tab-btn {% if tab == 'payment' %}active{% endif %}"
+       href="/?tab=payment&month={{ month }}">💳 Chuyển tiền</a>
+  </nav>
+</header>
+
+<main>
+
+  {# ══ TAB 1: THỰC ĐƠN TUẦN NÀY ══ #}
+  <div class="tab-panel {% if tab == 'week' %}active{% endif %}">
+    <div class="card">
+      <div class="card-header">
+        <h2>📅 Thực đơn tuần này</h2>
+        <span style="font-size:.85rem;color:#888">{{ week_label }}</span>
+      </div>
+      <div class="week-grid">
+        {% for day in week_days %}
+        <div class="day-card status-{{ day.status }}">
+          <div>
+            <div class="day-name">{{ day.weekday }}</div>
+            <div class="day-date">{{ day.date[8:10] }}/{{ day.date[5:7] }}</div>
+          </div>
+
+          {% if day.status == 'open' %}
+            <span class="status-badge badge-open">🟢 Đang vote</span>
+          {% elif day.status == 'closed' %}
+            <span class="status-badge badge-closed">✅ Đã chốt</span>
+          {% elif not day.menu_image %}
+            <span class="status-badge badge-none">— Không có</span>
+          {% endif %}
+
+          <div class="day-voters">
+            {% if day.voters %}
+              {% for name in day.voters %}
+                <div class="voter-name {% if name == day.picker_name %}is-picker{% endif %}">{{ name }}</div>
+              {% endfor %}
+            {% elif not day.menu_image %}
+              <div class="no-vote-text">Chưa có ai</div>
+            {% endif %}
+          </div>
+
+          {# ── Menu image ── #}
+          {% if day.menu_image %}
+            <div class="menu-img-wrap" onclick="openLightbox('/static/menus/{{ day.menu_image }}')">
+              <img src="/static/menus/{{ day.menu_image }}" alt="Thực đơn {{ day.date_display }}" />
+              <div class="menu-img-overlay">🔍 Phóng to</div>
+            </div>
+          {% endif %}
+
+          {# ── Upload button (admin only) ── #}
+          {% if is_admin %}
+          <label class="upload-btn" id="lbl-{{ day.date }}">
+            📷 {{ 'Đổi ảnh' if day.menu_image else 'Tải ảnh thực đơn' }}
+            <input type="file" accept="image/*" style="display:none"
+                   onchange="uploadMenu('{{ day.date }}', this)" />
+          </label>
+          {% endif %}
+
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ══ TAB 2: TỔNG KẾT CHI TIÊU ══ #}
+  <div class="tab-panel {% if tab == 'summary' %}active{% endif %}">
+
+    {% if summary %}
+    <div class="card">
+      <div class="stat-grid">
+        <div class="stat-item">
+          <div class="stat-value">{{ detail.members | length }}</div>
+          <div class="stat-label">Thành viên</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ detail.days | length }}</div>
+          <div class="stat-label">Ngày có cơm</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ "{:,.0f}".format(total_amount).replace(",", ".") }}đ</div>
+          <div class="stat-label">Tổng tiền nhóm</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ summary[0].price_per_meal | format_vnd }}đ</div>
+          <div class="stat-label">Giá mỗi suất</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-header">
+        <h2>📊 Chi tiết chi tiêu — {{ month_label }}</h2>
+        <form class="month-form" method="get" action="/">
+          <input type="hidden" name="tab" value="summary" />
+          <label style="font-size:.85rem;color:#666">Tháng:</label>
+          <select name="month" onchange="this.form.submit()">
+            {% for m in months %}
+              <option value="{{ m.value }}" {% if m.value == month %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+            {% if not months %}<option value="{{ month }}" selected>{{ month_label }}</option>{% endif %}
+          </select>
+        </form>
+      </div>
+
+      {% if is_sample %}
+      <div style="margin:12px 16px 0;padding:8px 14px;background:#fffbeb;border:1px solid #f6e05e;border-radius:8px;font-size:.82rem;color:#92400e">
+        ⚠️ Chưa có dữ liệu thực — đang hiển thị <strong>dữ liệu mẫu</strong> để xem trước giao diện
+      </div>
+      {% endif %}
+      <div class="detail-wrap">
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th class="col-name">Ngày</th>
+              {% for member in detail.members %}
+              <th>{{ member.full_name }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for day in detail.days %}
+            <tr>
+              <td class="td-name">
+                {{ day.date_short }}
+                <span class="detail-weekday">{{ day.weekday }}</span>
+              </td>
+              {% for member in detail.members %}
+                {% if day.date in member.votes %}
+                <td class="td-paid">{{ member.votes[day.date] | format_vnd }}đ</td>
+                {% else %}
+                <td class="td-empty">—</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="td-name" style="font-weight:700;color:#4c51bf">Tổng</td>
+              {% for member in detail.members %}
+              <td class="td-total">{{ member.total | format_vnd }}đ</td>
+              {% endfor %}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  {# ══ TAB 3: CHUYỂN TIỀN ══ #}
+  <div class="tab-panel {% if tab == 'payment' %}active{% endif %}">
+
+    {# QR codes grid #}
+    <div class="qr-grid">
+
+      {# ZaloPay QR #}
+      <div class="qr-card">
+        <div class="qr-card-header">
+          <h3>💙 ZaloPay</h3>
+        </div>
+        <div class="qr-img-area"
+             {% if qr_zalopay %}onclick="openLightbox('{{ qr_zalopay }}')"{% endif %}>
+          {% if qr_zalopay %}
+            <img src="{{ qr_zalopay }}" alt="QR ZaloPay" />
+          {% else %}
+            <div class="qr-placeholder">
+              <span>📷</span>
+              <p>Chưa có QR ZaloPay</p>
+            </div>
+          {% endif %}
+        </div>
+        {% if is_admin %}
+        <div class="qr-card-footer">
+          <label class="upload-btn" id="lbl-qr-zalopay">
+            📷 {{ 'Đổi QR ZaloPay' if qr_zalopay else 'Tải QR ZaloPay' }}
+            <input type="file" accept="image/*" style="display:none"
+                   onchange="uploadQR('zalopay', this)" />
+          </label>
+        </div>
+        {% endif %}
+      </div>
+
+      {# Bank QR #}
+      <div class="qr-card">
+        <div class="qr-card-header">
+          <h3>🏦 Ngân hàng</h3>
+        </div>
+        <div class="qr-img-area"
+             {% if qr_bank %}onclick="openLightbox('{{ qr_bank }}')"{% endif %}>
+          {% if qr_bank %}
+            <img src="{{ qr_bank }}" alt="QR Ngân hàng" />
+          {% else %}
+            <div class="qr-placeholder">
+              <span>📷</span>
+              <p>Chưa có QR ngân hàng</p>
+            </div>
+          {% endif %}
+        </div>
+        {% if is_admin %}
+        <div class="qr-card-footer">
+          <label class="upload-btn" id="lbl-qr-bank">
+            📷 {{ 'Đổi QR ngân hàng' if qr_bank else 'Tải QR ngân hàng' }}
+            <input type="file" accept="image/*" style="display:none"
+                   onchange="uploadQR('bank', this)" />
+          </label>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
+
+    {# Debt summary — how much each person owes this month #}
+    {% if detail.members %}
+    <div class="card debt-card">
+      <div class="card-header">
+        <h2>💰 Số tiền cần chuyển — {{ month_label }}</h2>
+        <form class="month-form" method="get" action="/">
+          <input type="hidden" name="tab" value="payment" />
+          <label style="font-size:.85rem;color:#666">Tháng:</label>
+          <select name="month" onchange="this.form.submit()">
+            {% for m in months %}
+              <option value="{{ m.value }}" {% if m.value == month %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+            {% if not months %}<option value="{{ month }}" selected>{{ month_label }}</option>{% endif %}
+          </select>
+        </form>
+      </div>
+
+
+      {% if is_sample %}
+      <div style="margin:12px 16px 0;padding:8px 14px;background:#fffbeb;border:1px solid #f6e05e;border-radius:8px;font-size:.82rem;color:#92400e">
+        ⚠️ Đang hiển thị <strong>dữ liệu mẫu</strong>
+      </div>
+      {% endif %}
+      <table>
+        <thead>
+          <tr>
+            <th>Thành viên</th>
+            <th>Số ngày đặt</th>
+            <th>Tổng tiền</th>
+            <th>Trạng thái</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for member in detail.members | sort(attribute='total', reverse=True) %}
+          <tr>
+            <td><strong>{{ member.full_name }}</strong></td>
+            <td class="meal-count">{{ member.votes | length }} ngày</td>
+            <td class="amount">{{ member.total | format_vnd }}đ</td>
+            <td>
+              {% if not is_sample and member.user_id %}
+                <span class="status-badge {% if member.paid %}badge-paid{% else %}badge-unpaid{% endif %}">
+                  {{ '✅ Đã đóng' if member.paid else '❌ Chưa đóng' }}
+                </span>
+                {% if is_admin %}
+                <button class="btn-toggle-paid"
+                        onclick="togglePaid('{{ month }}', {{ member.user_id }}, this)">
+                  {{ 'Huỷ' if member.paid else 'Đánh dấu' }}
+                </button>
+                {% endif %}
+              {% else %}
+                <span class="status-badge badge-unpaid">❌ Chưa đóng</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td style="font-weight:700;color:#4c51bf">Tổng nhóm</td>
+            <td></td>
+            <td style="font-weight:700;color:#4c51bf">{{ total_amount | format_vnd }}đ</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% endif %}
+
+  </div>
+
+</main>
+
+<footer style="text-align:center;padding:20px;font-size:.78rem;color:#bbb">
+  Lunch Bot Dashboard • Dữ liệu cập nhật realtime
+</footer>
+
+<!-- Login Modal -->
+<div class="modal-backdrop {% if request.query_params.get('login_error') %}open{% endif %}"
+     id="login-modal"
+     onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal">
+    <span class="modal-close" onclick="document.getElementById('login-modal').classList.remove('open')">✕</span>
+    <h3>🔐 Đăng nhập Admin</h3>
+    <p>Nhập mật khẩu để quản lý thực đơn</p>
+    {% if request.query_params.get('login_error') %}
+      <div class="error-msg">⚠️ Mật khẩu không đúng, thử lại</div>
+    {% endif %}
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="/?tab={{ tab }}&month={{ month }}" />
+      <input type="password" name="password" placeholder="Mật khẩu" autofocus />
+      <button type="submit">Đăng nhập</button>
+    </form>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <span class="lightbox-close" onclick="closeLightbox()">✕</span>
+  <img id="lightbox-img" src="" alt="" onclick="event.stopPropagation()" />
+</div>
+
+<script>
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+async function togglePaid(month, userId, btn) {
+  btn.disabled = true;
+  const form = new FormData();
+  form.append('year_month', month);
+  form.append('user_id', userId);
+  try {
+    const res = await fetch('/toggle-paid', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.reload();
+    } else {
+      btn.disabled = false;
+      alert('Lỗi: ' + (data.error || 'Unknown'));
+    }
+  } catch(e) {
+    btn.disabled = false;
+  }
+}
+
+async function uploadQR(type, input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const lbl = document.getElementById('lbl-qr-' + type);
+  lbl.classList.add('loading');
+  lbl.textContent = '⏳ Đang tải...';
+
+  const form = new FormData();
+  form.append('type', type);
+  form.append('file', file);
+
+  try {
+    const res = await fetch('/upload-qr', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.reload();
+    } else {
+      alert('Lỗi: ' + data.error);
+      lbl.classList.remove('loading');
+      lbl.textContent = '📷 Tải QR';
+    }
+  } catch (e) {
+    alert('Lỗi kết nối');
+    lbl.classList.remove('loading');
+    lbl.textContent = '📷 Tải QR';
+  }
+}
+
+async function uploadMenu(date, input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const lbl = document.getElementById('lbl-' + date);
+  lbl.classList.add('loading');
+  lbl.textContent = '⏳ Đang tải...';
+
+  const form = new FormData();
+  form.append('date', date);
+  form.append('file', file);
+
+  try {
+    const res = await fetch('/upload-menu', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      // Reload the page to show updated image
+      window.location.href = '/?tab=week';
+    } else {
+      alert('Lỗi: ' + data.error);
+      lbl.classList.remove('loading');
+      lbl.textContent = '📷 Tải ảnh thực đơn';
+    }
+  } catch (e) {
+    alert('Lỗi kết nối');
+    lbl.classList.remove('loading');
+    lbl.textContent = '📷 Tải ảnh thực đơn';
+  }
+}
+</script>
+
+</body>
+</html>
