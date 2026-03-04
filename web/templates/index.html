@@ -527,6 +527,26 @@
             <input type="file" accept="image/*" style="display:none"
                    onchange="uploadMenu('{{ day.date }}', this)" />
           </label>
+
+          {# ── Dish form (admin only) ── #}
+          {% set dishes = week_menu[day.date] %}
+          <form style="margin-top:8px;display:flex;flex-direction:column;gap:6px"
+                onsubmit="saveMenuItems(event, '{{ day.date }}')">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <input type="text" name="dish1" placeholder="Món 1" value="{{ dishes[0] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish2" placeholder="Món 2" value="{{ dishes[1] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish3" placeholder="Món 3" value="{{ dishes[2] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish4" placeholder="Món 4" value="{{ dishes[3] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+            </div>
+            <button type="submit"
+              style="align-self:flex-start;padding:6px 14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.82rem">
+              💾 Lưu món
+            </button>
+          </form>
           {% endif %}
 
         </div>
@@ -794,6 +814,29 @@ function closeLightbox() {
   document.getElementById('lightbox').classList.remove('open');
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+async function saveMenuItems(event, date) {
+  event.preventDefault();
+  const btn = event.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang lưu...';
+  const form = new FormData(event.target);
+  form.append('date', date);
+  try {
+    const res = await fetch('/save-menu-items', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ Đã lưu!';
+      setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Lưu'; }, 1500);
+    } else {
+      alert('Lỗi: ' + (data.error || 'Không thể lưu'));
+      btn.disabled = false; btn.textContent = '💾 Lưu';
+    }
+  } catch(e) {
+    alert('Lỗi kết nối');
+    btn.disabled = false; btn.textContent = '💾 Lưu';
+  }
+}
 
 async function togglePaid(month, userId, btn) {
   btn.disabled = true;

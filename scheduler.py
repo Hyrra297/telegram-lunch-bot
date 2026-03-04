@@ -32,13 +32,27 @@ async def _scheduled_open_vote(app: Application) -> None:
                     caption="🍽️ Thực đơn hôm nay",
                 )
 
-    msg = await app.bot.send_message(
-        chat_id=config.CHAT_ID,
-        text="🍱 *Đặt cơm hôm nay*\n\nChưa có ai đặt...",
-        parse_mode="Markdown",
-        reply_markup=__import__("handlers.vote", fromlist=["_build_keyboard"])._build_keyboard(),
-    )
-    await db.create_daily_vote(today_str, msg.message_id, price, ship_fee)
+    from handlers.vote import _build_keyboard, _build_vote_text
+    dishes = await db.get_menu_items(today_str)
+
+    if dishes:
+        poll_msg = await app.bot.send_poll(
+            chat_id=config.CHAT_ID,
+            question="🍱 Hôm nay ăn gì?",
+            options=dishes,
+            is_anonymous=False,
+            allows_multiple_answers=False,
+        )
+        await db.create_daily_vote(today_str, poll_msg.message_id, price, ship_fee)
+        await db.set_poll_id(today_str, poll_msg.poll.id)
+    else:
+        msg = await app.bot.send_message(
+            chat_id=config.CHAT_ID,
+            text=_build_vote_text([]),
+            parse_mode="Markdown",
+            reply_markup=_build_keyboard(),
+        )
+        await db.create_daily_vote(today_str, msg.message_id, price, ship_fee)
 
 
 async def _scheduled_close_vote(app: Application) -> None:
@@ -57,18 +71,25 @@ async def _scheduled_close_vote(app: Application) -> None:
         return
 
     picker = await db.pick_next_fetcher(today)
-    await db.close_daily_vote(today, picker["id"])
+    returner = await db.pick_next_returner(today, picker["id"])
+    await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
 
     voter_names = ", ".join(
         f"@{v['username']}" if v["username"] else v["full_name"] for v in voters
     )
     picker_mention = f"@{picker['username']}" if picker["username"] else f"*{picker['full_name']}*"
 
+    if returner and returner["id"] != picker["id"]:
+        returner_mention = f"@{returner['username']}" if returner["username"] else f"*{returner['full_name']}*"
+        roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
+    else:
+        roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
+
     await app.bot.send_message(
         chat_id=config.CHAT_ID,
         text=(
             f"🔒 Vote đã đóng! {len(voters)} người đặt cơm.\n\n"
-            f"🛵 {picker_mention} sẽ đi lấy cơm và trả hộp hôm nay!\n\n"
+            f"{roles_text}\n\n"
             f"Danh sách: {voter_names}"
         ),
         parse_mode="Markdown",

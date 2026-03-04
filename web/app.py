@@ -137,7 +137,13 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     summary = await db.get_monthly_summary(month, max_date=max_date)
     history = await db.get_daily_history(month)
     months = await db.get_available_months()
-    week_days = await db.get_week_data(_current_week_dates())
+    week_dates = _current_week_dates()
+    week_days = await db.get_week_data(week_dates)
+    # Load dishes for each day of the week
+    week_menu = {}
+    for d in week_dates:
+        items = await db.get_menu_items(d)
+        week_menu[d] = items + [""] * (4 - len(items))  # pad to 4 slots
     detail = await db.get_monthly_detail(month, max_date=max_date)
 
     is_sample = not detail["members"]
@@ -179,6 +185,7 @@ async def index(request: Request, month: str = "", tab: str = "week"):
         "total_amount": total_amount,
         "qr_zalopay": _find_qr("zalopay"),
         "qr_bank": _find_qr("bank"),
+        "week_menu": week_menu,
         "detail": detail,
         "is_sample": is_sample,
         "paid_count": paid_count,
@@ -207,6 +214,22 @@ async def logout(request: Request):
     response = RedirectResponse(redirect_to, status_code=303)
     response.delete_cookie(COOKIE_NAME)
     return response
+
+
+@app.post("/save-menu-items")
+async def save_menu_items_endpoint(
+    request: Request,
+    date: str = Form(...),
+    dish1: str = Form(""),
+    dish2: str = Form(""),
+    dish3: str = Form(""),
+    dish4: str = Form(""),
+):
+    if not _is_admin(request):
+        return JSONResponse({"ok": False, "error": "Không có quyền"}, status_code=403)
+    dishes = [d.strip() for d in [dish1, dish2, dish3, dish4] if d.strip()]
+    await db.save_menu_items(date, dishes)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/upload-menu")

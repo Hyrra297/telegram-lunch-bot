@@ -1,6 +1,9 @@
 from __future__ import annotations
+import pytz
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
+import aiosqlite
 
 import config
 import database as db
@@ -90,12 +93,37 @@ async def show_rotation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not users:
         await update.message.reply_text("Chưa có thành viên nào.")
         return
-    lines = []
-    for i, u in enumerate(users, 1):
-        last = u["last_picked_at"] or "chưa lần nào"
-        name = u["full_name"]
-        lines.append(f"{i}. {name} (lần cuối lấy: {last})")
-    await update.message.reply_text("📋 Thứ tự luân phiên:\n\n" + "\n".join(lines))
+
+    # Sort by rotation_index for pick list
+    pick_lines = []
+    for i, u in enumerate(sorted(users, key=lambda x: x["rotation_index"]), 1):
+        last = u["last_picked_at"] or "chưa"
+        pick_lines.append(f"{i}. {u['full_name']} (lần cuối: {last})")
+
+    # Sort by return_index for return list
+    ret_lines = []
+    for i, u in enumerate(sorted(users, key=lambda x: x["return_index"]), 1):
+        last = u["last_returned_at"] or "chưa"
+        ret_lines.append(f"{i}. {u['full_name']} (lần cuối: {last})")
+
+    text = (
+        "🛵 *Vòng xoay lấy cơm:*\n" + "\n".join(pick_lines) +
+        "\n\n📦 *Vòng xoay trả hộp:*\n" + "\n".join(ret_lines)
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+@_require_admin
+async def reset_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect(config.DB_PATH) as db_conn:
+        await db_conn.execute("DELETE FROM vote_entries WHERE date = ?", (today,))
+        await db_conn.execute(
+            "UPDATE daily_votes SET status = 'closed', poll_message_id = NULL WHERE date = ?",
+            (today,),
+        )
+        await db_conn.commit()
+    await update.message.reply_text(f"♻️ Đã reset vote ngày {today}. Dùng /open_vote để mở lại.")
 
 
 def get_handlers():
@@ -105,4 +133,5 @@ def get_handlers():
         CommandHandler("add_member", add_member),
         CommandHandler("remove_member", remove_member),
         CommandHandler("rotation", show_rotation),
+        CommandHandler("reset_vote", reset_vote),
     ]

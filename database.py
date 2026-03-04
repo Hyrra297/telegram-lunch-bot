@@ -50,6 +50,15 @@ async def init_db() -> None:
             "ALTER TABLE daily_votes ADD COLUMN menu_image TEXT",
             "ALTER TABLE daily_votes ADD COLUMN ship_fee INTEGER NOT NULL DEFAULT 20000",
             "ALTER TABLE daily_votes ADD COLUMN menu_description TEXT",
+            "ALTER TABLE daily_votes ADD COLUMN dish1 TEXT",
+            "ALTER TABLE daily_votes ADD COLUMN dish2 TEXT",
+            "ALTER TABLE daily_votes ADD COLUMN dish3 TEXT",
+            "ALTER TABLE daily_votes ADD COLUMN dish4 TEXT",
+            "ALTER TABLE vote_entries ADD COLUMN dish TEXT",
+            "ALTER TABLE daily_votes ADD COLUMN poll_id TEXT",
+            "ALTER TABLE users ADD COLUMN return_index INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN last_returned_at TEXT",
+            "ALTER TABLE daily_votes ADD COLUMN returner_user_id INTEGER",
         ]:
             try:
                 await db.execute(col_sql)
@@ -82,15 +91,18 @@ async def add_user(user_id: int, full_name: str, username: Optional[str]) -> Non
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT MAX(rotation_index) FROM users WHERE active = 1") as cur:
             row = await cur.fetchone()
-            next_idx = (row[0] or 0) + 1
+            next_pick_idx = (row[0] or 0) + 1
+        async with db.execute("SELECT MAX(return_index) FROM users WHERE active = 1") as cur:
+            row = await cur.fetchone()
+            next_ret_idx = (row[0] or 0) + 1
         await db.execute(
-            """INSERT INTO users (id, username, full_name, rotation_index, active)
-               VALUES (?, ?, ?, ?, 1)
+            """INSERT INTO users (id, username, full_name, rotation_index, return_index, active)
+               VALUES (?, ?, ?, ?, ?, 1)
                ON CONFLICT(id) DO UPDATE SET
                    username = excluded.username,
                    full_name = excluded.full_name,
                    active = 1""",
-            (user_id, username, full_name, next_idx),
+            (user_id, username, full_name, next_pick_idx, next_ret_idx),
         )
         await db.commit()
 
@@ -145,16 +157,35 @@ async def get_daily_vote(date: str) -> Optional[dict]:
             return dict(row) if row else None
 
 
-async def close_daily_vote(date: str, picker_user_id: int) -> None:
+async def get_daily_vote_by_poll_id(poll_id: str) -> Optional[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM daily_votes WHERE poll_id = ?", (poll_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def set_poll_id(date: str, poll_id: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE daily_votes SET poll_id = ? WHERE date = ?", (poll_id, date))
+        await db.commit()
+
+
+async def close_daily_vote(date: str, picker_user_id: int, returner_user_id: Optional[int] = None) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE daily_votes SET status = 'closed', picker_user_id = ? WHERE date = ?",
-            (picker_user_id, date),
+            "UPDATE daily_votes SET status = 'closed', picker_user_id = ?, returner_user_id = ? WHERE date = ?",
+            (picker_user_id, returner_user_id, date),
         )
         await db.execute(
             "UPDATE users SET last_picked_at = ? WHERE id = ?",
             (date, picker_user_id),
         )
+        if returner_user_id and returner_user_id != picker_user_id:
+            await db.execute(
+                "UPDATE users SET last_returned_at = ? WHERE id = ?",
+                (date, returner_user_id),
+            )
         await db.commit()
 
 
@@ -247,6 +278,37 @@ async def pick_next_fetcher(date: str) -> Optional[dict]:
     if candidates_after:
         return candidates_after[0]
     return voters[0]  # wrap around to start
+
+
+async def pick_next_returner(date: str, exclude_user_id: int) -> Optional[dict]:
+    """
+    From today's voters (excluding picker), pick the next person in the return rotation.
+    If only 1 voter, return that person (same as picker).
+    """
+    voters = await get_voters(date)
+    if not voters:
+        return None
+
+    candidates = [v for v in voters if v["id"] != exclude_user_id]
+    if not candidates:
+        return voters[0]  # Only 1 voter → same person does both
+
+    # Find last returner's return_index
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT u.return_index FROM daily_votes dv
+               JOIN users u ON u.id = dv.returner_user_id
+               WHERE dv.date < ? AND dv.returner_user_id IS NOT NULL
+               ORDER BY dv.date DESC LIMIT 1""",
+            (date,),
+        ) as cur:
+            row = await cur.fetchone()
+            last_idx = row[0] if row else -1
+
+    after = [v for v in candidates if v["return_index"] > last_idx]
+    if after:
+        return after[0]
+    return candidates[0]  # wrap around
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -526,3 +588,89 @@ async def get_week_data(week_dates: list) -> list:
             })
 
     return results
+
+
+# ── Menu items (dishes) ───────────────────────────────────────────────────────
+
+async def save_menu_items(date: str, dishes: list) -> None:
+    """Save up to 4 dish names for a given date. Creates placeholder row if needed."""
+    d1 = dishes[0] if len(dishes) > 0 else None
+    d2 = dishes[1] if len(dishes) > 1 else None
+    d3 = dishes[2] if len(dishes) > 2 else None
+    d4 = dishes[3] if len(dishes) > 3 else None
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO daily_votes (date, price, status) VALUES (?, ?, 'none')",
+            (date, 35000),
+        )
+        await db.execute(
+            "UPDATE daily_votes SET dish1=?, dish2=?, dish3=?, dish4=? WHERE date=?",
+            (d1, d2, d3, d4, date),
+        )
+        await db.commit()
+
+
+async def get_menu_items(date: str) -> list:
+    """Returns list of non-empty dish names for a date (up to 4)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT dish1, dish2, dish3, dish4 FROM daily_votes WHERE date=?", (date,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return []
+    return [row[k] for k in ("dish1", "dish2", "dish3", "dish4") if row[k]]
+
+
+async def vote_for_dish(date: str, user_id: int, dish: str) -> Optional[str]:
+    """
+    Vote for a specific dish.
+    - Same dish again → cancel (delete), return None
+    - Different dish → update dish, return new dish
+    - No existing vote → insert, return dish
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT dish FROM vote_entries WHERE date=? AND user_id=?", (date, user_id)
+        ) as cur:
+            row = await cur.fetchone()
+
+        if row is not None:
+            if row[0] == dish:
+                # Same dish → cancel
+                await db.execute(
+                    "DELETE FROM vote_entries WHERE date=? AND user_id=?", (date, user_id)
+                )
+                await db.commit()
+                return None
+            else:
+                # Different dish → update
+                await db.execute(
+                    "UPDATE vote_entries SET dish=? WHERE date=? AND user_id=?",
+                    (dish, date, user_id),
+                )
+                await db.commit()
+                return dish
+        else:
+            await db.execute(
+                "INSERT INTO vote_entries (date, user_id, dish) VALUES (?, ?, ?)",
+                (date, user_id, dish),
+            )
+            await db.commit()
+            return dish
+
+
+async def get_voters_with_dish(date: str) -> list:
+    """Like get_voters but includes the dish field."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT u.*, ve.dish FROM users u
+               JOIN vote_entries ve ON u.id = ve.user_id
+               WHERE ve.date = ? AND u.active = 1
+               ORDER BY u.rotation_index""",
+            (date,),
+        ) as cur:
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows]

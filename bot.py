@@ -5,7 +5,7 @@ from telegram.ext import Application
 
 import config
 import database as db
-from handlers import vote, admin, summary
+from handlers import vote, admin, summary, payment
 from scheduler import build_scheduler
 
 logging.basicConfig(
@@ -40,6 +40,8 @@ def main() -> None:
     for handler in admin.get_handlers():
         app.add_handler(handler)
     for handler in summary.get_handlers():
+        app.add_handler(handler)
+    for handler in payment.get_handlers():
         app.add_handler(handler)
 
     logger.info("Bot is running...")

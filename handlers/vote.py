@@ -4,7 +4,7 @@ import pytz
 from datetime import datetime
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, PollAnswerHandler
 
 import anthropic
 import config
@@ -87,7 +87,7 @@ async def open_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ship_fee_str = await db.get_setting("ship_fee") or str(config.SHIP_FEE)
     ship_fee = int(ship_fee_str)
 
-    # Send menu photo if available, then extract menu description
+    # Send menu photo if available
     menu_image = existing["menu_image"] if existing else None
     menu_description = ""
     if menu_image:
@@ -104,15 +104,58 @@ async def open_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             except Exception:
                 menu_description = ""
 
-    msg = await context.bot.send_message(
-        chat_id=config.CHAT_ID,
-        text=_build_vote_text([], menu_description),
-        parse_mode="Markdown",
-        reply_markup=_build_keyboard(),
-    )
-    await db.create_daily_vote(today, msg.message_id, price, ship_fee)
-    if menu_description:
-        await db.set_menu_description(today, menu_description)
+    dishes = await db.get_menu_items(today)
+
+    if dishes:
+        # Native Telegram poll
+        poll_msg = await context.bot.send_poll(
+            chat_id=config.CHAT_ID,
+            question="🍱 Hôm nay ăn gì?",
+            options=dishes,
+            is_anonymous=False,
+            allows_multiple_answers=False,
+        )
+        await db.create_daily_vote(today, poll_msg.message_id, price, ship_fee)
+        await db.set_poll_id(today, poll_msg.poll.id)
+    else:
+        # Fallback: inline keyboard
+        msg = await context.bot.send_message(
+            chat_id=config.CHAT_ID,
+            text=_build_vote_text([], menu_description),
+            parse_mode="Markdown",
+            reply_markup=_build_keyboard(),
+        )
+        await db.create_daily_vote(today, msg.message_id, price, ship_fee)
+        if menu_description:
+            await db.set_menu_description(today, menu_description)
+
+
+async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Xử lý khi user vote trong native Telegram poll."""
+    answer = update.poll_answer
+    poll_id = answer.poll_id
+    user_id = answer.user.id
+    option_ids = answer.option_ids  # [] nếu user bỏ vote
+
+    daily = await db.get_daily_vote_by_poll_id(poll_id)
+    if not daily or daily["status"] != "open":
+        return
+
+    date = daily["date"]
+    dishes = await db.get_menu_items(date)
+
+    if not option_ids:
+        # User retracted vote
+        import aiosqlite
+        async with aiosqlite.connect(config.DB_PATH) as db_conn:
+            await db_conn.execute(
+                "DELETE FROM vote_entries WHERE date=? AND user_id=?", (date, user_id)
+            )
+            await db_conn.commit()
+    else:
+        idx = option_ids[0]
+        dish = dishes[idx] if idx < len(dishes) else dishes[0]
+        await db.vote_for_dish(date, user_id, dish)
 
 
 async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -138,23 +181,39 @@ async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     picker = await db.pick_next_fetcher(today)
-    await db.close_daily_vote(today, picker["id"])
+    returner = await db.pick_next_returner(today, picker["id"])
+    await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
 
     voter_names = ", ".join(f"@{v['username']}" if v["username"] else v["full_name"] for v in voters)
     picker_mention = f"@{picker['username']}" if picker["username"] else f"*{picker['full_name']}*"
+
+    if returner and returner["id"] != picker["id"]:
+        returner_mention = f"@{returner['username']}" if returner["username"] else f"*{returner['full_name']}*"
+        roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
+    else:
+        roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
 
     await context.bot.send_message(
         chat_id=config.CHAT_ID,
         text=(
             f"🔒 Vote đã đóng! {len(voters)} người đặt cơm.\n\n"
-            f"🛵 {picker_mention} sẽ đi lấy cơm và trả hộp hôm nay!\n\n"
+            f"{roles_text}\n\n"
             f"Danh sách: {voter_names}"
         ),
         parse_mode="Markdown",
     )
 
-    # Disable buttons on the poll message
-    if daily["poll_message_id"]:
+    # Đóng native poll nếu có
+    if daily.get("poll_id") and daily.get("poll_message_id"):
+        try:
+            await context.bot.stop_poll(
+                chat_id=config.CHAT_ID,
+                message_id=daily["poll_message_id"],
+            )
+        except Exception:
+            pass
+    # Đóng inline keyboard nếu có (fallback mode)
+    elif daily.get("poll_message_id") and not daily.get("poll_id"):
         try:
             await context.bot.edit_message_reply_markup(
                 chat_id=config.CHAT_ID,
@@ -166,6 +225,7 @@ async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Fallback handler cho inline keyboard (khi không có dishes)."""
     query = update.callback_query
     await query.answer()
 
@@ -184,10 +244,7 @@ async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if query.data == CALLBACK_VOTE_IN:
         voted_in = await db.toggle_vote(today, user.id)
-        if not voted_in:
-            await query.answer("Đã huỷ đặt cơm.")
-        else:
-            await query.answer("Đã đăng ký đặt cơm!")
+        await query.answer("Đã đăng ký đặt cơm!" if voted_in else "Đã huỷ đặt cơm.")
     elif query.data == CALLBACK_VOTE_OUT:
         await db.toggle_vote(today, user.id)
         await query.answer("Đã bỏ phiếu (không đặt).")
@@ -209,4 +266,5 @@ def get_handlers():
         CommandHandler("open_vote", open_vote),
         CommandHandler("close_vote", close_vote),
         CallbackQueryHandler(handle_vote_callback, pattern=r"^vote:"),
+        PollAnswerHandler(handle_poll_answer),
     ]
