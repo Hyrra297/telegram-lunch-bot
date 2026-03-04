@@ -49,6 +49,7 @@ async def init_db() -> None:
         for col_sql in [
             "ALTER TABLE daily_votes ADD COLUMN menu_image TEXT",
             "ALTER TABLE daily_votes ADD COLUMN ship_fee INTEGER NOT NULL DEFAULT 20000",
+            "ALTER TABLE daily_votes ADD COLUMN menu_description TEXT",
         ]:
             try:
                 await db.execute(col_sql)
@@ -153,6 +154,15 @@ async def close_daily_vote(date: str, picker_user_id: int) -> None:
         await db.execute(
             "UPDATE users SET last_picked_at = ? WHERE id = ?",
             (date, picker_user_id),
+        )
+        await db.commit()
+
+
+async def set_menu_description(date: str, description: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE daily_votes SET menu_description = ? WHERE date = ?",
+            (description, date),
         )
         await db.commit()
 

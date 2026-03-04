@@ -1,10 +1,12 @@
 from __future__ import annotations
+import base64
 import pytz
 from datetime import datetime
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
+import anthropic
 import config
 import database as db
 
@@ -25,13 +27,48 @@ def _build_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def _build_vote_text(voters: list[dict]) -> str:
+def _build_vote_text(voters: list[dict], menu_description: str = "") -> str:
+    header = "🍱 *Đặt cơm hôm nay*"
+    if menu_description:
+        header += f"\n\n{menu_description}"
     if voters:
         names = "\n".join(f"  • {v['full_name']}" for v in voters)
-        header = f"🍱 *Đặt cơm hôm nay* ({len(voters)} người)\n\n{names}"
+        header += f"\n\n👥 {len(voters)} người đặt:\n{names}"
     else:
-        header = "🍱 *Đặt cơm hôm nay*\n\nChưa có ai đặt..."
+        header += "\n\nChưa có ai đặt..."
     return header
+
+
+async def _extract_menu_from_image(image_path: Path) -> str:
+    """Dùng Claude vision để đọc nội dung thực đơn từ ảnh."""
+    if not config.ANTHROPIC_API_KEY:
+        return ""
+    media_types = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
+    }
+    media_type = media_types.get(image_path.suffix.lower(), "image/jpeg")
+    with open(image_path, "rb") as f:
+        image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+    client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
+    response = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": image_data},
+                },
+                {
+                    "type": "text",
+                    "text": "Đây là ảnh thực đơn cơm trưa. Hãy liệt kê các món ăn trong ảnh, mỗi món một dòng bắt đầu bằng •. Chỉ liệt kê tên món, không giải thích thêm.",
+                },
+            ],
+        }],
+    )
+    return response.content[0].text.strip()
 
 
 async def open_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -50,8 +87,9 @@ async def open_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ship_fee_str = await db.get_setting("ship_fee") or str(config.SHIP_FEE)
     ship_fee = int(ship_fee_str)
 
-    # Send menu photo if available
+    # Send menu photo if available, then extract menu description
     menu_image = existing["menu_image"] if existing else None
+    menu_description = ""
     if menu_image:
         photo_path = Path("static/menus") / menu_image
         if photo_path.exists():
@@ -61,14 +99,20 @@ async def open_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     photo=f,
                     caption="🍽️ Thực đơn hôm nay",
                 )
+            try:
+                menu_description = await _extract_menu_from_image(photo_path)
+            except Exception:
+                menu_description = ""
 
     msg = await context.bot.send_message(
         chat_id=config.CHAT_ID,
-        text=_build_vote_text([]),
+        text=_build_vote_text([], menu_description),
         parse_mode="Markdown",
         reply_markup=_build_keyboard(),
     )
     await db.create_daily_vote(today, msg.message_id, price, ship_fee)
+    if menu_description:
+        await db.set_menu_description(today, menu_description)
 
 
 async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -149,9 +193,10 @@ async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("Đã bỏ phiếu (không đặt).")
 
     voters = await db.get_voters(today)
+    menu_description = daily.get("menu_description") or ""
     try:
         await query.edit_message_text(
-            text=_build_vote_text(voters),
+            text=_build_vote_text(voters, menu_description),
             parse_mode="Markdown",
             reply_markup=_build_keyboard(),
         )
