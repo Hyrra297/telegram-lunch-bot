@@ -23,7 +23,7 @@ async def init_db() -> None:
                 date            TEXT PRIMARY KEY,
                 poll_message_id INTEGER,
                 picker_user_id  INTEGER,
-                price           INTEGER NOT NULL DEFAULT 35000,
+                price           INTEGER NOT NULL DEFAULT 45000,
                 status          TEXT NOT NULL DEFAULT 'open',
                 menu_image      TEXT
             );
@@ -168,6 +168,15 @@ async def get_daily_vote_by_poll_id(poll_id: str) -> Optional[dict]:
 async def set_poll_id(date: str, poll_id: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE daily_votes SET poll_id = ? WHERE date = ?", (poll_id, date))
+        await db.commit()
+
+
+async def set_vote_closed(date: str) -> None:
+    """Đóng vote (status='closed') mà chưa chọn người lấy/trả."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE daily_votes SET status = 'closed' WHERE date = ?", (date,)
+        )
         await db.commit()
 
 
@@ -318,33 +327,38 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
     year_month: 'YYYY-MM'
     max_date:   'YYYY-MM-DD' upper bound (inclusive). If None, no upper bound.
     Returns list of {full_name, meal_count, price_per_meal, total}
+    Total = sum of (price + ship_fee/voter_count) per day — same formula as web dashboard.
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         extra = " AND ve.date <= ?" if max_date else ""
         params = (f"{year_month}-%", max_date) if max_date else (f"{year_month}-%",)
         async with db.execute(
-            f"""SELECT u.full_name,
-                      COUNT(ve.user_id) AS meal_count,
-                      dv.price          AS price_per_meal
+            f"""SELECT u.full_name, u.rotation_index, ve.date, dv.price, dv.ship_fee
                FROM users u
                JOIN vote_entries ve ON u.id = ve.user_id
                JOIN daily_votes dv  ON dv.date = ve.date
                WHERE ve.date LIKE ? AND dv.status = 'closed'{extra}
-               GROUP BY u.id, dv.price
-               ORDER BY u.rotation_index""",
+               ORDER BY u.rotation_index, ve.date""",
             params,
         ) as cur:
-            rows = await cur.fetchall()
+            entries = [dict(r) for r in await cur.fetchall()]
 
-    # Aggregate per user (in case price changed mid-month, sum correctly)
-    totals = {}
-    for r in rows:
-        name = r["full_name"]
+    # Count voters per day to split ship_fee correctly
+    day_voter_counts: dict[str, int] = {}
+    for e in entries:
+        day_voter_counts[e["date"]] = day_voter_counts.get(e["date"], 0) + 1
+
+    # Aggregate per user
+    totals: dict[str, dict] = {}
+    for e in entries:
+        name = e["full_name"]
         if name not in totals:
-            totals[name] = {"full_name": name, "meal_count": 0, "total": 0, "price_per_meal": r["price_per_meal"]}
-        totals[name]["meal_count"] += r["meal_count"]
-        totals[name]["total"] += r["meal_count"] * r["price_per_meal"]
+            totals[name] = {"full_name": name, "meal_count": 0, "total": 0, "price_per_meal": e["price"]}
+        count = day_voter_counts[e["date"]]
+        ship = e.get("ship_fee") or 0
+        totals[name]["meal_count"] += 1
+        totals[name]["total"] += e["price"] + round(ship / count)
 
     return list(totals.values())
 
@@ -577,11 +591,16 @@ async def get_week_data(week_dates: list) -> list:
                     row = await cur.fetchone()
                     picker_name = row[0] if row else None
 
+            # Nếu ngày đã qua mà vote vẫn open → hiện là closed
+            status = dv["status"]
+            if status == "open" and d < dt_date.today():
+                status = "closed"
+
             results.append({
                 "date": date_str,
                 "date_display": date_display,
                 "weekday": WEEKDAYS[d.weekday()],
-                "status": dv["status"],
+                "status": status,
                 "voters": voters,
                 "picker_name": picker_name,
                 "menu_image": dv["menu_image"],

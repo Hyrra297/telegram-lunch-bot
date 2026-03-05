@@ -184,7 +184,6 @@ async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     returner = await db.pick_next_returner(today, picker["id"])
     await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
 
-    voter_names = ", ".join(f"@{v['username']}" if v["username"] else v["full_name"] for v in voters)
     picker_mention = f"@{picker['username']}" if picker["username"] else f"*{picker['full_name']}*"
 
     if returner and returner["id"] != picker["id"]:
@@ -195,11 +194,7 @@ async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     await context.bot.send_message(
         chat_id=config.CHAT_ID,
-        text=(
-            f"🔒 Vote đã đóng! {len(voters)} người đặt cơm.\n\n"
-            f"{roles_text}\n\n"
-            f"Danh sách: {voter_names}"
-        ),
+        text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm.\n\n{roles_text}",
         parse_mode="Markdown",
     )
 

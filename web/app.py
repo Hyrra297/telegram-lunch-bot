@@ -2,7 +2,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import time
 import pytz
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import FastAPI, Request, UploadFile, File, Form
@@ -52,6 +54,30 @@ def _is_admin(request: Request) -> bool:
     return bool(token) and hmac.compare_digest(token, expected)
 
 
+def _safe_redirect(url: str) -> str:
+    """Only allow relative redirects — prevents open redirect attacks."""
+    if url and url.startswith("/") and not url.startswith("//"):
+        return url
+    return "/"
+
+
+# ── Rate limiting ──────────────────────────────────────────────────────────────
+
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_MAX_ATTEMPTS = 5
+_WINDOW_SECONDS = 300  # 5 phút
+
+
+def _is_rate_limited(ip: str) -> bool:
+    now = time.time()
+    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _WINDOW_SECONDS]
+    return len(_login_attempts[ip]) >= _MAX_ATTEMPTS
+
+
+def _record_failed_attempt(ip: str) -> None:
+    _login_attempts[ip].append(time.time())
+
+
 # ── Time helpers ──────────────────────────────────────────────────────────────
 
 def _current_month() -> str:
@@ -62,62 +88,6 @@ def _current_week_dates() -> list:
     today = datetime.now(pytz.timezone(config.TIMEZONE)).date()
     monday = today - timedelta(days=today.weekday())
     return [(monday + timedelta(days=i)).isoformat() for i in range(5)]
-
-
-# ── Sample data ───────────────────────────────────────────────────────────────
-
-def _sample_detail(month: str) -> dict:
-    """Hardcoded preview data shown when no real closed votes exist yet."""
-    from datetime import date as dt_date
-    WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
-    year, m = map(int, month.split("-"))
-
-    # Pick Mon–Fri for the first 2 full weeks of the month
-    import calendar
-    first_day = dt_date(year, m, 1)
-    # Align to first Monday on or after the 1st
-    offset = (7 - first_day.weekday()) % 7
-    monday1 = first_day + timedelta(days=offset)
-
-    days = []
-    price = 35000
-    for week in range(2):
-        for i in range(5):
-            d = monday1 + timedelta(weeks=week, days=i)
-            if d.month != m:
-                continue
-            days.append({
-                "date": d.isoformat(),
-                "date_short": f"{d.day:02d}/{d.month:02d}",
-                "weekday": WEEKDAYS[d.weekday()],
-                "price": price,
-            })
-
-    ship_fee = 20000
-    names = ["Nguyễn Văn An", "Trần Thị Bình", "Lê Minh Cường", "Phạm Thu Hà"]
-    # Deterministic vote pattern per member (1 = đặt, 0 = không đặt)
-    patterns = [
-        [1, 1, 0, 1, 1,  1, 0, 1, 1, 1],
-        [1, 0, 1, 1, 1,  0, 1, 1, 0, 1],
-        [0, 1, 1, 1, 0,  1, 1, 0, 1, 1],
-        [1, 1, 1, 0, 1,  1, 1, 1, 1, 0],
-    ]
-    # Số người đặt mỗi ngày để chia ship
-    day_counts = [
-        sum(1 for p in patterns if i < len(p) and p[i])
-        for i in range(len(days))
-    ]
-    members = []
-    for idx, name in enumerate(names):
-        pat = patterns[idx % len(patterns)]
-        votes = {}
-        for i in range(len(days)):
-            if i < len(pat) and pat[i]:
-                count = day_counts[i] or 1
-                votes[days[i]["date"]] = price + round(ship_fee / count)
-        members.append({"full_name": name, "votes": votes, "total": sum(votes.values())})
-
-    return {"days": days, "members": members}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -146,10 +116,7 @@ async def index(request: Request, month: str = "", tab: str = "week"):
         week_menu[d] = items + [""] * (4 - len(items))  # pad to 4 slots
     detail = await db.get_monthly_detail(month, max_date=max_date)
 
-    is_sample = not detail["members"]
     paid_ids = await db.get_paid_user_ids(month)
-    if is_sample:
-        detail = _sample_detail(month)
 
     # Attach paid status to each member
     for member in detail["members"]:
@@ -187,7 +154,6 @@ async def index(request: Request, month: str = "", tab: str = "week"):
         "qr_bank": _find_qr("bank"),
         "week_menu": week_menu,
         "detail": detail,
-        "is_sample": is_sample,
         "paid_count": paid_count,
         "is_admin": _is_admin(request),
     })
@@ -195,8 +161,15 @@ async def index(request: Request, month: str = "", tab: str = "week"):
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...), next: str = Form("/")):
-    if password == config.ADMIN_PASSWORD:
-        response = RedirectResponse(next, status_code=303)
+    redirect_to = _safe_redirect(next)
+    ip = request.client.host
+
+    if _is_rate_limited(ip):
+        return RedirectResponse(f"{redirect_to}?login_error=2", status_code=303)
+
+    if hmac.compare_digest(password.encode(), config.ADMIN_PASSWORD.encode()):
+        _login_attempts.pop(ip, None)  # reset khi đăng nhập thành công
+        response = RedirectResponse(redirect_to, status_code=303)
         response.set_cookie(
             COOKIE_NAME, _admin_token(),
             httponly=True, samesite="lax",
@@ -204,14 +177,14 @@ async def login(request: Request, password: str = Form(...), next: str = Form("/
             path="/",
         )
         return response
-    # Wrong password – redirect back with error flag
-    return RedirectResponse(f"{next}&login_error=1", status_code=303)
+
+    _record_failed_attempt(ip)
+    return RedirectResponse(f"{redirect_to}?login_error=1", status_code=303)
 
 
 @app.get("/logout")
-async def logout(request: Request):
-    redirect_to = request.headers.get("referer", "/")
-    response = RedirectResponse(redirect_to, status_code=303)
+async def logout():
+    response = RedirectResponse("/", status_code=303)
     response.delete_cookie(COOKIE_NAME)
     return response
 

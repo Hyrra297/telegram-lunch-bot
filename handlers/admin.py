@@ -126,6 +126,21 @@ async def reset_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(f"♻️ Đã reset vote ngày {today}. Dùng /open_vote để mở lại.")
 
 
+@_require_admin
+async def skip_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tz = pytz.timezone(config.TIMEZONE)
+    today = datetime.now(tz).strftime("%Y-%m-%d")
+    async with aiosqlite.connect(db.DB_PATH) as db_conn:
+        await db_conn.execute(
+            """INSERT INTO daily_votes (date, price, ship_fee, status)
+               VALUES (?, ?, ?, 'closed')
+               ON CONFLICT(date) DO UPDATE SET status = 'closed'""",
+            (today, config.PRICE_PER_MEAL, config.SHIP_FEE),
+        )
+        await db_conn.commit()
+    await update.message.reply_text(f"⏭️ Đã bỏ qua ngày {today} — hôm nay không đặt cơm.")
+
+
 def get_handlers():
     return [
         CommandHandler("set_price", set_price),
@@ -134,4 +149,5 @@ def get_handlers():
         CommandHandler("remove_member", remove_member),
         CommandHandler("rotation", show_rotation),
         CommandHandler("reset_vote", reset_vote),
+        CommandHandler("skip_today", skip_today),
     ]

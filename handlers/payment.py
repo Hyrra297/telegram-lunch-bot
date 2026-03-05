@@ -21,11 +21,6 @@ def _month_label(year_month: str) -> str:
 
 async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    member = await db.get_user(user.id)
-    if not member or not member["active"]:
-        await update.message.reply_text("Bạn chưa được thêm vào danh sách đặt cơm.")
-        return
-
     year_month = _current_month()
     paid_ids = await db.get_paid_user_ids(year_month)
     if user.id in paid_ids:

@@ -43,8 +43,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         total = r["total"]
         lines.append(f"👤 {name:<16}: {count} suất = *{total:,}đ*")
 
-    price_note = f"\nGiá mỗi suất: {rows[0]['price_per_meal']:,}đ" if rows else ""
-    text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}{price_note}"
+    text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}"
 
     await update.message.reply_text(text, parse_mode="Markdown")
 

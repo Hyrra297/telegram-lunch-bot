@@ -56,46 +56,25 @@ async def _scheduled_open_vote(app: Application) -> None:
 
 
 async def _scheduled_close_vote(app: Application) -> None:
+    """10:00 — Đóng vote, dừng nhận đăng ký, thông báo danh sách."""
     from datetime import datetime
     today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     daily = await db.get_daily_vote(today)
-    if not daily or daily["status"] == "closed":
+    if not daily or daily["status"] != "open":
         return
 
     voters = await db.get_voters(today)
-    if not voters:
-        await app.bot.send_message(
-            chat_id=config.CHAT_ID,
-            text="Hôm nay không có ai đặt cơm.",
-        )
-        return
 
-    picker = await db.pick_next_fetcher(today)
-    returner = await db.pick_next_returner(today, picker["id"])
-    await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
-
-    voter_names = ", ".join(
-        f"@{v['username']}" if v["username"] else v["full_name"] for v in voters
-    )
-    picker_mention = f"@{picker['username']}" if picker["username"] else f"*{picker['full_name']}*"
-
-    if returner and returner["id"] != picker["id"]:
-        returner_mention = f"@{returner['username']}" if returner["username"] else f"*{returner['full_name']}*"
-        roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
-    else:
-        roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
-
-    await app.bot.send_message(
-        chat_id=config.CHAT_ID,
-        text=(
-            f"🔒 Vote đã đóng! {len(voters)} người đặt cơm.\n\n"
-            f"{roles_text}\n\n"
-            f"Danh sách: {voter_names}"
-        ),
-        parse_mode="Markdown",
-    )
-
-    if daily["poll_message_id"]:
+    # Đóng poll / keyboard
+    if daily.get("poll_id") and daily.get("poll_message_id"):
+        try:
+            await app.bot.stop_poll(
+                chat_id=config.CHAT_ID,
+                message_id=daily["poll_message_id"],
+            )
+        except Exception:
+            pass
+    elif daily.get("poll_message_id"):
         try:
             await app.bot.edit_message_reply_markup(
                 chat_id=config.CHAT_ID,
@@ -105,28 +84,79 @@ async def _scheduled_close_vote(app: Application) -> None:
         except Exception:
             pass
 
+    await db.set_vote_closed(today)
+
+    if not voters:
+        await app.bot.send_message(
+            chat_id=config.CHAT_ID,
+            text="🔒 Vote đã đóng. Hôm nay không có ai đặt cơm.",
+        )
+        return
+
+    await app.bot.send_message(
+        chat_id=config.CHAT_ID,
+        text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm hôm nay.\n\n⏳ 10:30 sẽ thông báo người đi lấy cơm.",
+        parse_mode="Markdown",
+    )
+
+
+async def _scheduled_announce_roles(app: Application) -> None:
+    """10:30 — Chọn và thông báo người lấy cơm + trả hộp."""
+    from datetime import datetime
+    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    daily = await db.get_daily_vote(today)
+    if not daily or daily["status"] != "closed":
+        return
+    if daily.get("picker_user_id"):
+        return  # Đã chọn rồi
+
+    voters = await db.get_voters(today)
+    if not voters:
+        return
+
+    picker = await db.pick_next_fetcher(today)
+    returner = await db.pick_next_returner(today, picker["id"])
+    await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
+
+    picker_mention = f"@{picker['username']}" if picker["username"] else f"*{picker['full_name']}*"
+    if returner and returner["id"] != picker["id"]:
+        returner_mention = f"@{returner['username']}" if returner["username"] else f"*{returner['full_name']}*"
+        roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
+    else:
+        roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
+
+    await app.bot.send_message(
+        chat_id=config.CHAT_ID,
+        text=f"🍱 Phân công hôm nay:\n\n{roles_text}",
+        parse_mode="Markdown",
+    )
+
 
 def build_scheduler(app: Application) -> AsyncIOScheduler:
-    open_time = config.VOTE_OPEN_TIME   # HH:MM
-    close_time = config.VOTE_CLOSE_TIME  # HH:MM
     tz = pytz.timezone(config.TIMEZONE)
 
-    open_h, open_m = map(int, open_time.split(":"))
-    close_h, close_m = map(int, close_time.split(":"))
+    def _hm(t: str):
+        h, m = map(int, t.split(":"))
+        return h, m
+
+    open_h, open_m = _hm(config.VOTE_OPEN_TIME)
+    close_h, close_m = _hm(config.VOTE_CLOSE_TIME)
+    announce_h, announce_m = _hm(config.ANNOUNCE_TIME)
 
     scheduler = AsyncIOScheduler(timezone=tz)
     scheduler.add_job(
         _scheduled_open_vote,
         trigger=CronTrigger(hour=open_h, minute=open_m, timezone=tz),
-        args=[app],
-        id="open_vote",
-        replace_existing=True,
+        args=[app], id="open_vote", replace_existing=True,
     )
     scheduler.add_job(
         _scheduled_close_vote,
         trigger=CronTrigger(hour=close_h, minute=close_m, timezone=tz),
-        args=[app],
-        id="close_vote",
-        replace_existing=True,
+        args=[app], id="close_vote", replace_existing=True,
+    )
+    scheduler.add_job(
+        _scheduled_announce_roles,
+        trigger=CronTrigger(hour=announce_h, minute=announce_m, timezone=tz),
+        args=[app], id="announce_roles", replace_existing=True,
     )
     return scheduler

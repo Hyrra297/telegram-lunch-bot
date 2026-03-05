@@ -1,11 +1,12 @@
 import asyncio
 import logging
 
+from telegram import BotCommand, BotCommandScopeChat
 from telegram.ext import Application
 
 import config
 import database as db
-from handlers import vote, admin, summary, payment
+from handlers import vote, admin, summary, payment, help
 from scheduler import build_scheduler
 
 logging.basicConfig(
@@ -26,6 +27,31 @@ async def post_init(app: Application) -> None:
         config.TIMEZONE,
     )
 
+    # Lệnh hiện cho mọi người khi gõ /
+    user_commands = [
+        BotCommand("summary", "Xem tổng kết đặt cơm tháng này"),
+        BotCommand("dong_tien", "Báo đã đóng tiền tháng này"),
+        BotCommand("help", "Xem danh sách lệnh"),
+    ]
+    await app.bot.set_my_commands(user_commands)
+
+    # Lệnh admin — hiện thêm khi admin gõ /
+    admin_commands = user_commands + [
+        BotCommand("open_vote", "Mở vote đặt cơm hôm nay"),
+        BotCommand("close_vote", "Đóng vote và chọn người lấy cơm"),
+        BotCommand("add_member", "Thêm thành viên (reply vào tin nhắn của họ)"),
+        BotCommand("remove_member", "Xoá thành viên (reply vào tin nhắn của họ)"),
+        BotCommand("set_price", "Đổi giá mỗi suất cơm"),
+        BotCommand("set_time", "Đổi giờ mở/đóng vote"),
+        BotCommand("rotation", "Xem thứ tự lượt lấy cơm và trả hộp"),
+        BotCommand("reset_vote", "Xoá vote hôm nay để mở lại"),
+    ]
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await app.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(admin_id))
+        except Exception:
+            pass
+
 
 def main() -> None:
     app = (
@@ -42,6 +68,8 @@ def main() -> None:
     for handler in summary.get_handlers():
         app.add_handler(handler)
     for handler in payment.get_handlers():
+        app.add_handler(handler)
+    for handler in help.get_handlers():
         app.add_handler(handler)
 
     logger.info("Bot is running...")

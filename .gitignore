@@ -25,6 +25,11 @@ static/menus/
 # Claude Code
 .claude/
 
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
 # IDE
 .vscode/
 .idea/

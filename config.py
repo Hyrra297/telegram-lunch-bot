@@ -7,8 +7,9 @@ load_dotenv()
 BOT_TOKEN: str = os.environ["BOT_TOKEN"]
 CHAT_ID: int = int(os.environ["CHAT_ID"])
 ADMIN_IDS: set = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
-VOTE_OPEN_TIME: str = os.getenv("VOTE_OPEN_TIME", "08:00")   # HH:MM
-VOTE_CLOSE_TIME: str = os.getenv("VOTE_CLOSE_TIME", "10:30") # HH:MM
+VOTE_OPEN_TIME: str = os.getenv("VOTE_OPEN_TIME", "08:30")    # HH:MM
+VOTE_CLOSE_TIME: str = os.getenv("VOTE_CLOSE_TIME", "10:00")  # HH:MM
+ANNOUNCE_TIME: str = os.getenv("ANNOUNCE_TIME", "10:30")       # HH:MM
 PRICE_PER_MEAL: int = int(os.getenv("PRICE_PER_MEAL", "45000"))
 SHIP_FEE: int = int(os.getenv("SHIP_FEE", "20000"))
 TIMEZONE: str = os.getenv("TIMEZONE", "Asia/Ho_Chi_Minh")

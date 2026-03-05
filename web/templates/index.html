@@ -498,19 +498,9 @@
             <span class="status-badge badge-open">🟢 Đang vote</span>
           {% elif day.status == 'closed' %}
             <span class="status-badge badge-closed">✅ Đã chốt</span>
-          {% elif not day.menu_image %}
-            <span class="status-badge badge-none">— Không có</span>
+          {% else %}
+            <span class="status-badge badge-none">⏳ Chưa mở vote</span>
           {% endif %}
-
-          <div class="day-voters">
-            {% if day.voters %}
-              {% for name in day.voters %}
-                <div class="voter-name {% if name == day.picker_name %}is-picker{% endif %}">{{ name }}</div>
-              {% endfor %}
-            {% elif not day.menu_image %}
-              <div class="no-vote-text">Chưa có ai</div>
-            {% endif %}
-          </div>
 
           {# ── Menu image ── #}
           {% if day.menu_image %}
@@ -573,17 +563,16 @@
           <div class="stat-value">{{ "{:,.0f}".format(total_amount).replace(",", ".") }}đ</div>
           <div class="stat-label">Tổng tiền nhóm</div>
         </div>
-        <div class="stat-item">
-          <div class="stat-value">{{ summary[0].price_per_meal | format_vnd }}đ</div>
-          <div class="stat-label">Giá mỗi suất</div>
-        </div>
       </div>
     </div>
     {% endif %}
 
     <div class="card">
       <div class="card-header">
-        <h2>📊 Chi tiết chi tiêu — {{ month_label }}</h2>
+        <div>
+          <h2>📊 Chi tiết chi tiêu — {{ month_label }}</h2>
+          <p style="font-size:.8rem;color:#888;margin:4px 0 0">* Mỗi suất = 45.000đ (suất cơm) + (20.000đ tiền ship ÷ số người đặt hôm đó)</p>
+        </div>
         <form class="month-form" method="get" action="/">
           <input type="hidden" name="tab" value="summary" />
           <label style="font-size:.85rem;color:#666">Tháng:</label>
@@ -596,11 +585,6 @@
         </form>
       </div>
 
-      {% if is_sample %}
-      <div style="margin:12px 16px 0;padding:8px 14px;background:#fffbeb;border:1px solid #f6e05e;border-radius:8px;font-size:.82rem;color:#92400e">
-        ⚠️ Chưa có dữ liệu thực — đang hiển thị <strong>dữ liệu mẫu</strong> để xem trước giao diện
-      </div>
-      {% endif %}
       <div class="detail-wrap">
         <table class="detail-table">
           <thead>
@@ -612,6 +596,13 @@
             </tr>
           </thead>
           <tbody>
+            {% if not detail.members %}
+            <tr>
+              <td colspan="99" style="text-align:center;padding:32px;color:#aaa;font-size:.9rem">
+                Chưa có dữ liệu cho tháng này
+              </td>
+            </tr>
+            {% else %}
             {% for day in detail.days %}
             <tr>
               <td class="td-name">
@@ -627,6 +618,7 @@
               {% endfor %}
             </tr>
             {% endfor %}
+            {% endif %}
           </tbody>
           <tfoot>
             <tr>
@@ -705,7 +697,6 @@
     </div>
 
     {# Debt summary — how much each person owes this month #}
-    {% if detail.members %}
     <div class="card debt-card">
       <div class="card-header">
         <h2>💰 Số tiền cần chuyển — {{ month_label }}</h2>
@@ -722,11 +713,6 @@
       </div>
 
 
-      {% if is_sample %}
-      <div style="margin:12px 16px 0;padding:8px 14px;background:#fffbeb;border:1px solid #f6e05e;border-radius:8px;font-size:.82rem;color:#92400e">
-        ⚠️ Đang hiển thị <strong>dữ liệu mẫu</strong>
-      </div>
-      {% endif %}
       <table>
         <thead>
           <tr>
@@ -737,13 +723,20 @@
           </tr>
         </thead>
         <tbody>
+          {% if not detail.members %}
+          <tr>
+            <td colspan="4" style="text-align:center;padding:32px;color:#aaa;font-size:.9rem">
+              Chưa có dữ liệu cho tháng này
+            </td>
+          </tr>
+          {% else %}
           {% for member in detail.members | sort(attribute='total', reverse=True) %}
           <tr>
             <td><strong>{{ member.full_name }}</strong></td>
             <td class="meal-count">{{ member.votes | length }} ngày</td>
             <td class="amount">{{ member.total | format_vnd }}đ</td>
             <td>
-              {% if not is_sample and member.user_id %}
+              {% if member.user_id %}
                 <span class="status-badge {% if member.paid %}badge-paid{% else %}badge-unpaid{% endif %}">
                   {{ '✅ Đã đóng' if member.paid else '❌ Chưa đóng' }}
                 </span>
@@ -759,6 +752,7 @@
             </td>
           </tr>
           {% endfor %}
+          {% endif %}
         </tbody>
         <tfoot>
           <tr>
@@ -770,7 +764,6 @@
         </tfoot>
       </table>
     </div>
-    {% endif %}
 
   </div>
 
@@ -788,7 +781,9 @@
     <span class="modal-close" onclick="document.getElementById('login-modal').classList.remove('open')">✕</span>
     <h3>🔐 Đăng nhập Admin</h3>
     <p>Nhập mật khẩu để quản lý thực đơn</p>
-    {% if request.query_params.get('login_error') %}
+    {% if request.query_params.get('login_error') == '2' %}
+      <div class="error-msg">🚫 Quá nhiều lần thử sai. Vui lòng đợi 5 phút.</div>
+    {% elif request.query_params.get('login_error') %}
       <div class="error-msg">⚠️ Mật khẩu không đúng, thử lại</div>
     {% endif %}
     <form method="post" action="/login">

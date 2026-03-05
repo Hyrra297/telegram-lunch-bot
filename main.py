@@ -10,9 +10,10 @@ from telegram.ext import Application
 
 import config
 import database as db
-from handlers import vote, admin, summary, menu
+from handlers import vote, admin, summary, menu, payment, help
 from scheduler import build_scheduler
 from web.app import app as web_app
+from telegram import BotCommand, BotCommandScopeChat, BotCommandScopeChatMember
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -26,7 +27,63 @@ PORT = int(os.getenv("PORT", 8080))
 async def run_bot(tg_app: Application) -> None:
     await tg_app.initialize()
     await tg_app.start()
-    await tg_app.updater.start_polling(drop_pending_updates=True)
+    await tg_app.updater.start_polling(
+        drop_pending_updates=True,
+        allowed_updates=["message", "callback_query", "poll_answer", "poll"],
+    )
+
+    # Xóa sạch lệnh cũ ở mọi scope trước
+    from telegram import (
+        BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats,
+        BotCommandScopeAllChatAdministrators,
+    )
+    for scope in [
+        None,  # default
+        BotCommandScopeAllPrivateChats(),
+        BotCommandScopeAllGroupChats(),
+        BotCommandScopeAllChatAdministrators(),
+    ]:
+        try:
+            if scope is None:
+                await tg_app.bot.delete_my_commands()
+            else:
+                await tg_app.bot.delete_my_commands(scope=scope)
+        except Exception:
+            pass
+    for admin_id in config.ADMIN_IDS:
+        for scope in [
+            BotCommandScopeChat(admin_id),
+            BotCommandScopeChatMember(chat_id=config.CHAT_ID, user_id=admin_id),
+        ]:
+            try:
+                await tg_app.bot.delete_my_commands(scope=scope)
+            except Exception:
+                pass  # delete cả ChatMember để clear cache cũ
+
+    # Đăng ký lệnh mới
+    user_commands = [
+        BotCommand("summary", "Xem tổng tiền cơm phải đóng tháng này"),
+        BotCommand("dong_tien", "Báo đã đóng tiền tháng này"),
+        BotCommand("help", "Xem danh sách lệnh"),
+    ]
+    admin_commands = user_commands + [
+        BotCommand("open_vote", "Mở vote đặt cơm hôm nay"),
+        BotCommand("close_vote", "Đóng vote, chốt đơn cơm hôm nay"),
+        BotCommand("add_member", "Thêm thành viên (reply vào tin nhắn của họ)"),
+        BotCommand("remove_member", "Xoá thành viên (reply vào tin nhắn của họ)"),
+        BotCommand("set_price", "Đổi giá mỗi suất cơm"),
+        BotCommand("set_time", "Đổi giờ mở/đóng vote"),
+        BotCommand("rotation", "Xem thứ tự lượt lấy cơm và trả hộp"),
+        BotCommand("reset_vote", "Xoá vote hôm nay để mở lại"),
+        BotCommand("skip_today", "Hôm nay không đặt cơm"),
+    ]
+    await tg_app.bot.set_my_commands(user_commands)
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await tg_app.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(admin_id))
+        except Exception:
+            pass
+
     logger.info("Telegram bot started.")
     # Keep running until cancelled
     try:
@@ -61,6 +118,10 @@ async def main() -> None:
     for handler in summary.get_handlers():
         tg_app.add_handler(handler)
     for handler in menu.get_handlers():
+        tg_app.add_handler(handler)
+    for handler in payment.get_handlers():
+        tg_app.add_handler(handler)
+    for handler in help.get_handlers():
         tg_app.add_handler(handler)
 
     scheduler = build_scheduler(tg_app)
