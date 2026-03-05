@@ -20,6 +20,6 @@ primary_region = "sin"  # Singapore — gần Việt Nam nhất
   size = "shared-cpu-1x"
   memory = "256mb"
 
-[mounts]
+[[mounts]]
   source = "lunch_data"
   destination = "/data"
