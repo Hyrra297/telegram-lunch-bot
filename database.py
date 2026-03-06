@@ -59,6 +59,7 @@ async def init_db() -> None:
             "ALTER TABLE users ADD COLUMN return_index INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN last_returned_at TEXT",
             "ALTER TABLE daily_votes ADD COLUMN returner_user_id INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN cost_per_person INTEGER",
         ]:
             try:
                 await db.execute(col_sql)
@@ -176,6 +177,15 @@ async def set_vote_closed(date: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE daily_votes SET status = 'closed' WHERE date = ?", (date,)
+        )
+        await db.commit()
+
+
+async def set_cost_per_person(date: str, cost: int) -> None:
+    """Ghi chi phí mỗi người vào daily_votes (chạy lúc 12h)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE daily_votes SET cost_per_person = ? WHERE date = ?", (cost, date)
         )
         await db.commit()
 
