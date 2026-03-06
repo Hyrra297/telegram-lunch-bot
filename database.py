@@ -88,6 +88,31 @@ async def set_setting(key: str, value: str) -> None:
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 
+async def ensure_user(user_id: int, username: Optional[str], full_name: str) -> None:
+    """Thêm user vào bảng users nếu chưa có. Nếu đã có thì cập nhật username/full_name."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id FROM users WHERE id = ?", (user_id,)) as cur:
+            exists = await cur.fetchone()
+        if not exists:
+            async with db.execute("SELECT MAX(rotation_index) FROM users WHERE active = 1") as cur:
+                row = await cur.fetchone()
+                next_pick_idx = (row[0] or 0) + 1
+            async with db.execute("SELECT MAX(return_index) FROM users WHERE active = 1") as cur:
+                row = await cur.fetchone()
+                next_ret_idx = (row[0] or 0) + 1
+            await db.execute(
+                """INSERT INTO users (id, username, full_name, rotation_index, return_index, active)
+                   VALUES (?, ?, ?, ?, ?, 1)""",
+                (user_id, username, full_name, next_pick_idx, next_ret_idx),
+            )
+        else:
+            await db.execute(
+                "UPDATE users SET username = ?, full_name = ? WHERE id = ?",
+                (username, full_name, user_id),
+            )
+        await db.commit()
+
+
 async def add_user(user_id: int, full_name: str, username: Optional[str]) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT MAX(rotation_index) FROM users WHERE active = 1") as cur:

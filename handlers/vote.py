@@ -153,6 +153,11 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             await db_conn.commit()
     else:
+        # Tự động thêm user vào bảng users nếu chưa có
+        user = answer.user
+        full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username or str(user_id)
+        await db.ensure_user(user_id, user.username, full_name)
+
         idx = option_ids[0]
         dish = dishes[idx] if idx < len(dishes) else dishes[0]
         await db.vote_for_dish(date, user_id, dish)
