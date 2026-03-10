@@ -1,25 +1,23 @@
-# fly.toml — generated for Fly.io free tier
-app = "telegram-lunch-bot"
-primary_region = "sin"  # Singapore — gần Việt Nam nhất
+# fly.toml app configuration file generated for telegram-lunch-bot-q7s05w on 2026-03-10T02:01:24Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'telegram-lunch-bot-q7s05w'
+primary_region = 'ams'
 
 [build]
-  dockerfile = "Dockerfile"
-
-[env]
-  PORT = "8080"
-  DB_PATH = "/data/lunch_bot.db"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = false
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
+  processes = ['app']
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
-
-[[mounts]]
-  source = "lunch_data"
-  destination = "/data"
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
