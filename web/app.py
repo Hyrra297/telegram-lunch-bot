@@ -23,7 +23,7 @@ ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 COOKIE_NAME = "admin_token"
 
 app = FastAPI(title="Lunch Bot Dashboard")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static", follow_symlink=True), name="static")
 templates = Jinja2Templates(directory="web/templates")
 
 
