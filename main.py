@@ -19,6 +19,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     level=logging.INFO,
 )
+# Suppress noisy httpx logs (getUpdates every 10s floods the log buffer)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 PORT = int(os.getenv("PORT", 8080))

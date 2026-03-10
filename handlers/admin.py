@@ -119,7 +119,11 @@ async def reset_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     async with aiosqlite.connect(config.DB_PATH) as db_conn:
         await db_conn.execute("DELETE FROM vote_entries WHERE date = ?", (today,))
         await db_conn.execute(
-            "UPDATE daily_votes SET status = 'closed', poll_message_id = NULL WHERE date = ?",
+            """UPDATE daily_votes SET status = 'none',
+               poll_message_id = NULL, poll_id = NULL,
+               picker_user_id = NULL, returner_user_id = NULL,
+               cost_per_person = NULL
+               WHERE date = ?""",
             (today,),
         )
         await db_conn.commit()

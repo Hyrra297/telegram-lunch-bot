@@ -189,10 +189,10 @@ async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     returner = await db.pick_next_returner(today, picker["id"])
     await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
 
-    picker_mention = f"@{picker['username']}" if picker["username"] else f"*{picker['full_name']}*"
+    picker_mention = f"@{picker['username']}" if picker["username"] else picker["full_name"]
 
     if returner and returner["id"] != picker["id"]:
-        returner_mention = f"@{returner['username']}" if returner["username"] else f"*{returner['full_name']}*"
+        returner_mention = f"@{returner['username']}" if returner["username"] else returner["full_name"]
         roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
     else:
         roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"

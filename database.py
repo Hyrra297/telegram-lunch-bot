@@ -298,19 +298,19 @@ async def get_voters(date: str) -> list:
 
 async def pick_next_fetcher(date: str) -> Optional[dict]:
     """
-    From today's voters, pick the next person in rotation after the last picker.
-    Wraps around if needed. Returns the selected user dict or None if no voters.
+    Single queue: A picks, B returns → next day C picks, D returns.
+    Find the next person after last returner (advances 2 steps per day).
     """
     voters = await get_voters(date)
     if not voters:
         return None
 
-    # Find last picker's rotation_index
+    # Find last returner's rotation_index (queue advances past returner)
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             """SELECT u.rotation_index FROM daily_votes dv
-               JOIN users u ON u.id = dv.picker_user_id
-               WHERE dv.date < ? AND dv.picker_user_id IS NOT NULL
+               JOIN users u ON u.id = dv.returner_user_id
+               WHERE dv.date < ? AND dv.returner_user_id IS NOT NULL
                ORDER BY dv.date DESC LIMIT 1""",
             (date,),
         ) as cur:
@@ -324,32 +324,24 @@ async def pick_next_fetcher(date: str) -> Optional[dict]:
     return voters[0]  # wrap around to start
 
 
-async def pick_next_returner(date: str, exclude_user_id: int) -> Optional[dict]:
+async def pick_next_returner(date: str, picker_user_id: int) -> Optional[dict]:
     """
-    From today's voters (excluding picker), pick the next person in the return rotation.
-    If only 1 voter, return that person (same as picker).
+    Same rotation queue as picker. Pick the next person after the picker
+    in rotation_index order (excluding picker). If only 1 voter, same person does both.
     """
     voters = await get_voters(date)
     if not voters:
         return None
 
-    candidates = [v for v in voters if v["id"] != exclude_user_id]
+    candidates = [v for v in voters if v["id"] != picker_user_id]
     if not candidates:
         return voters[0]  # Only 1 voter → same person does both
 
-    # Find last returner's return_index
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            """SELECT u.return_index FROM daily_votes dv
-               JOIN users u ON u.id = dv.returner_user_id
-               WHERE dv.date < ? AND dv.returner_user_id IS NOT NULL
-               ORDER BY dv.date DESC LIMIT 1""",
-            (date,),
-        ) as cur:
-            row = await cur.fetchone()
-            last_idx = row[0] if row else -1
+    # Find picker's rotation_index
+    picker_idx = next((v["rotation_index"] for v in voters if v["id"] == picker_user_id), -1)
 
-    after = [v for v in candidates if v["return_index"] > last_idx]
+    # Next person after picker in rotation order (wrap around)
+    after = [v for v in candidates if v["rotation_index"] > picker_idx]
     if after:
         return after[0]
     return candidates[0]  # wrap around
