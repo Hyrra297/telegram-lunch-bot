@@ -16,14 +16,18 @@ from scheduler import build_scheduler
 from web.app import app as web_app
 
 # Symlink static dirs to persistent volume so uploads survive restarts
+import shutil
 for name in ("menus", "qr"):
     vol = Path(f"/data/{name}")
     link = Path(f"static/{name}")
     vol.mkdir(parents=True, exist_ok=True)
-    if link.is_symlink() or link.exists():
+    if link.is_symlink():
         if link.resolve() != vol.resolve():
-            link.unlink() if link.is_symlink() else None
+            link.unlink()
             link.symlink_to(vol)
+    elif link.is_dir():
+        shutil.rmtree(link)
+        link.symlink_to(vol)
     else:
         link.parent.mkdir(parents=True, exist_ok=True)
         link.symlink_to(vol)
