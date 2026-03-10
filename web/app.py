@@ -218,7 +218,10 @@ async def upload_menu(
     if ext not in ALLOWED_EXT:
         return JSONResponse({"ok": False, "error": "Chỉ hỗ trợ JPG, PNG, WEBP, GIF"}, status_code=400)
 
-    filename = f"{date}{ext}"
+    # Save by weekday name so next week's upload replaces the old one
+    from datetime import datetime as _dt
+    weekday = _dt.strptime(date, "%Y-%m-%d").strftime("%a").lower()  # mon, tue, ...
+    filename = f"{weekday}{ext}"
     dest = MENU_DIR / filename
     content = await file.read()
     dest.write_bytes(content)
