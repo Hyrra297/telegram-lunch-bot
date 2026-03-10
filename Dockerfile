@@ -11,7 +11,7 @@ COPY . .
 ENV PORT=8080
 
 # Data directory for SQLite persistent volume
-RUN mkdir -p /data
+RUN mkdir -p /data/menus /data/qr
 ENV DB_PATH=/data/lunch_bot.db
 
 EXPOSE 8080

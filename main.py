@@ -4,6 +4,7 @@ Entry point: runs Telegram bot + FastAPI web server in the same asyncio event lo
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 import uvicorn
 from telegram.ext import Application
@@ -13,6 +14,19 @@ import database as db
 from handlers import vote, admin, summary, menu, payment, help
 from scheduler import build_scheduler
 from web.app import app as web_app
+
+# Symlink static dirs to persistent volume so uploads survive restarts
+for name in ("menus", "qr"):
+    vol = Path(f"/data/{name}")
+    link = Path(f"static/{name}")
+    vol.mkdir(parents=True, exist_ok=True)
+    if link.is_symlink() or link.exists():
+        if link.resolve() != vol.resolve():
+            link.unlink() if link.is_symlink() else None
+            link.symlink_to(vol)
+    else:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(vol)
 from telegram import BotCommand, BotCommandScopeChat, BotCommandScopeChatMember
 
 logging.basicConfig(
