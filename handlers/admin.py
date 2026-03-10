@@ -94,22 +94,11 @@ async def show_rotation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("Chưa có thành viên nào.")
         return
 
-    # Sort by rotation_index for pick list
-    pick_lines = []
+    lines = []
     for i, u in enumerate(sorted(users, key=lambda x: x["rotation_index"]), 1):
-        last = u["last_picked_at"] or "chưa"
-        pick_lines.append(f"{i}. {u['full_name']} (lần cuối: {last})")
+        lines.append(f"{i}. {u['full_name']}")
 
-    # Sort by return_index for return list
-    ret_lines = []
-    for i, u in enumerate(sorted(users, key=lambda x: x["return_index"]), 1):
-        last = u["last_returned_at"] or "chưa"
-        ret_lines.append(f"{i}. {u['full_name']} (lần cuối: {last})")
-
-    text = (
-        "🛵 *Vòng xoay lấy cơm:*\n" + "\n".join(pick_lines) +
-        "\n\n📦 *Vòng xoay trả hộp:*\n" + "\n".join(ret_lines)
-    )
+    text = "🔄 *Vòng xoay phân công:*\n" + "\n".join(lines)
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
