@@ -114,9 +114,12 @@ async def _scheduled_close_and_announce(app: Application) -> None:
         returner = await db.pick_next_returner(today, picker["id"])
         await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
 
-        picker_mention = f"@{picker['username']}" if picker["username"] else picker["full_name"]
+        def _esc(s: str) -> str:
+            return s.replace("_", "\\_")
+
+        picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
         if returner and returner["id"] != picker["id"]:
-            returner_mention = f"@{returner['username']}" if returner["username"] else returner["full_name"]
+            returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
             roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
         else:
             roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
