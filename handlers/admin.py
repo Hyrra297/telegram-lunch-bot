@@ -94,11 +94,15 @@ async def show_rotation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("Chưa có thành viên nào.")
         return
 
+    pick_dates = await db.get_last_pick_return_dates()
+
     lines = []
     for i, u in enumerate(sorted(users, key=lambda x: x["rotation_index"]), 1):
-        lines.append(f"{i}. {u['full_name']}")
+        picked = pick_dates.get(u["id"], {}).get("picked") or "—"
+        returned = pick_dates.get(u["id"], {}).get("returned") or "—"
+        lines.append(f"{i}. {u['full_name']}  🛵{picked}  📦{returned}")
 
-    text = "🔄 *Vòng xoay phân công:*\n" + "\n".join(lines)
+    text = "🔄 *Vòng xoay phân công:*\n_(🛵 lấy cơm | 📦 trả hộp)_\n" + "\n".join(lines)
     await update.message.reply_text(text, parse_mode="Markdown")
 
 

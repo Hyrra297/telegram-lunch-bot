@@ -294,6 +294,25 @@ async def get_voters(date: str) -> list:
             return [dict(r) for r in rows]
 
 
+async def get_last_pick_return_dates() -> dict:
+    """Return {user_id: {"picked": date, "returned": date}} from daily_votes."""
+    result: dict = {}
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT picker_user_id, MAX(date) FROM daily_votes
+               WHERE picker_user_id IS NOT NULL GROUP BY picker_user_id"""
+        ) as cur:
+            for row in await cur.fetchall():
+                result.setdefault(row[0], {})["picked"] = row[1]
+        async with db.execute(
+            """SELECT returner_user_id, MAX(date) FROM daily_votes
+               WHERE returner_user_id IS NOT NULL GROUP BY returner_user_id"""
+        ) as cur:
+            for row in await cur.fetchall():
+                result.setdefault(row[0], {})["returned"] = row[1]
+    return result
+
+
 # ── Round-robin picker ────────────────────────────────────────────────────────
 
 async def pick_next_fetcher(date: str) -> Optional[dict]:
