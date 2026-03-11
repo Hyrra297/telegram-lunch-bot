@@ -97,12 +97,8 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     if not month:
         month = _current_month()
 
-    # Only include today's data after 12:00 noon (local time)
     now_local = datetime.now(pytz.timezone(config.TIMEZONE))
-    if now_local.hour >= 12:
-        max_date = now_local.date().isoformat()
-    else:
-        max_date = (now_local.date() - timedelta(days=1)).isoformat()
+    max_date = now_local.date().isoformat()
 
     summary = await db.get_monthly_summary(month, max_date=max_date)
     history = await db.get_daily_history(month)
