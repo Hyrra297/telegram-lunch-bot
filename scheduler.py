@@ -154,11 +154,11 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
     scheduler.add_job(
         _scheduled_open_vote,
         trigger=CronTrigger(hour=open_h, minute=open_m, day_of_week="mon-fri", timezone=tz),
-        args=[app], id="open_vote", replace_existing=True,
+        args=[app], id="open_vote", replace_existing=True, misfire_grace_time=300,
     )
     scheduler.add_job(
         _scheduled_close_and_announce,
         trigger=CronTrigger(hour=close_h, minute=close_m, day_of_week="mon-fri", timezone=tz),
-        args=[app], id="close_vote", replace_existing=True,
+        args=[app], id="close_vote", replace_existing=True, misfire_grace_time=300,
     )
     return scheduler
