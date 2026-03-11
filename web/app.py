@@ -86,7 +86,9 @@ def _current_month() -> str:
 
 def _current_week_dates() -> list:
     today = datetime.now(pytz.timezone(config.TIMEZONE)).date()
-    monday = today - timedelta(days=today.weekday())
+    # Chủ nhật (weekday=6): hiển thị tuần sau để chuẩn bị menu
+    offset = 7 if today.weekday() == 6 else 0
+    monday = today - timedelta(days=today.weekday()) + timedelta(days=offset)
     return [(monday + timedelta(days=i)).isoformat() for i in range(5)]
 
 
@@ -125,7 +127,8 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     month_label = f"Tháng {int(m)}/{year}"
 
     today = datetime.now(pytz.timezone(config.TIMEZONE)).date()
-    monday = today - timedelta(days=today.weekday())
+    week_offset = 7 if today.weekday() == 6 else 0
+    monday = today - timedelta(days=today.weekday()) + timedelta(days=week_offset)
     friday = monday + timedelta(days=4)
     week_label = f"{monday.day}/{monday.month} – {friday.day}/{friday.month}/{friday.year}"
 
