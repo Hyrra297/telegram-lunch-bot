@@ -315,38 +315,30 @@ async def get_last_pick_return_dates() -> dict:
 
 # ── Round-robin picker ────────────────────────────────────────────────────────
 
+def _last_duty(v: dict) -> str:
+    """Return the most recent duty date (pick or return), or '' if never."""
+    lp = v.get("last_picked_at") or ""
+    lr = v.get("last_returned_at") or ""
+    return max(lp, lr)
+
+
 async def pick_next_fetcher(date: str) -> Optional[dict]:
     """
-    Single queue: A picks, B returns → next day C picks, D returns.
-    Find the next person after last returner (advances 2 steps per day).
+    Among today's voters, pick the person who did duty least recently.
+    Tiebreak by rotation_index (preserves round-robin order).
     """
     voters = await get_voters(date)
     if not voters:
         return None
 
-    # Find last returner's rotation_index (queue advances past returner)
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            """SELECT u.rotation_index FROM daily_votes dv
-               JOIN users u ON u.id = dv.returner_user_id
-               WHERE dv.date < ? AND dv.returner_user_id IS NOT NULL
-               ORDER BY dv.date DESC LIMIT 1""",
-            (date,),
-        ) as cur:
-            row = await cur.fetchone()
-            last_idx = row[0] if row else -1
-
-    # Find first voter with rotation_index > last_idx (wrap around if needed)
-    candidates_after = [v for v in voters if v["rotation_index"] > last_idx]
-    if candidates_after:
-        return candidates_after[0]
-    return voters[0]  # wrap around to start
+    voters.sort(key=lambda v: (_last_duty(v), v["rotation_index"]))
+    return voters[0]
 
 
 async def pick_next_returner(date: str, picker_user_id: int) -> Optional[dict]:
     """
-    Same rotation queue as picker. Pick the next person after the picker
-    in rotation_index order (excluding picker). If only 1 voter, same person does both.
+    Among today's voters (excluding picker), pick the person who did duty
+    least recently. If only 1 voter, same person does both.
     """
     voters = await get_voters(date)
     if not voters:
@@ -356,14 +348,8 @@ async def pick_next_returner(date: str, picker_user_id: int) -> Optional[dict]:
     if not candidates:
         return voters[0]  # Only 1 voter → same person does both
 
-    # Find picker's rotation_index
-    picker_idx = next((v["rotation_index"] for v in voters if v["id"] == picker_user_id), -1)
-
-    # Next person after picker in rotation order (wrap around)
-    after = [v for v in candidates if v["rotation_index"] > picker_idx]
-    if after:
-        return after[0]
-    return candidates[0]  # wrap around
+    candidates.sort(key=lambda v: (_last_duty(v), v["rotation_index"]))
+    return candidates[0]
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────

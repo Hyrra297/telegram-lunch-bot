@@ -94,15 +94,22 @@ async def show_rotation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("Chưa có thành viên nào.")
         return
 
-    pick_dates = await db.get_last_pick_return_dates()
+    # Sort by last duty date ASC (who goes next first), tiebreak rotation_index
+    def _last_duty(u):
+        lp = u.get("last_picked_at") or ""
+        lr = u.get("last_returned_at") or ""
+        return max(lp, lr)
+
+    sorted_users = sorted(users, key=lambda u: (_last_duty(u), u["rotation_index"]))
 
     lines = []
-    for i, u in enumerate(sorted(users, key=lambda x: x["rotation_index"]), 1):
-        picked = pick_dates.get(u["id"], {}).get("picked") or "—"
-        returned = pick_dates.get(u["id"], {}).get("returned") or "—"
+    for i, u in enumerate(sorted_users, 1):
+        picked = u.get("last_picked_at") or "—"
+        returned = u.get("last_returned_at") or "—"
+        last = _last_duty(u) or "chưa làm"
         lines.append(f"{i}. {u['full_name']}  🛵{picked}  📦{returned}")
 
-    text = "🔄 *Vòng xoay phân công:*\n_(🛵 lấy cơm | 📦 trả hộp)_\n" + "\n".join(lines)
+    text = "🔄 *Vòng xoay phân công:*\n_(ưu tiên từ trên xuống — ai lâu nhất đi trước)_\n" + "\n".join(lines)
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
