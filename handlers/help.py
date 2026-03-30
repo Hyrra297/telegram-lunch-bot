@@ -6,7 +6,6 @@ import config
 
 USER_COMMANDS = """
 *📋 Lệnh dành cho mọi người:*
-/summary — Xem tổng kết đặt cơm tháng này
 /tien — Xem tiền cơm của bạn tháng này
 /dong\\_tien — Báo đã đóng tiền tháng này
 /qr — Xem mã QR chuyển tiền
@@ -16,6 +15,7 @@ USER_COMMANDS = """
 ADMIN_COMMANDS = """
 
 *🔧 Lệnh dành cho admin:*
+/summary — Xem tổng kết đặt cơm tháng này
 /open\\_vote — Mở vote đặt cơm hôm nay
 /close\\_vote — Đóng vote, chốt đơn cơm hôm nay
 /add\\_member — Thêm thành viên (reply vào tin nhắn của họ)
