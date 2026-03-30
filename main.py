@@ -11,7 +11,7 @@ from telegram.ext import Application
 
 import config
 import database as db
-from handlers import vote, admin, summary, menu, payment, help
+from handlers import vote, admin, summary, menu, payment, help, qr
 from scheduler import build_scheduler
 from web.app import app as web_app
 
@@ -83,7 +83,9 @@ async def run_bot(tg_app: Application) -> None:
     # Đăng ký lệnh mới
     user_commands = [
         BotCommand("summary", "Xem tổng tiền cơm phải đóng tháng này"),
+        BotCommand("tien", "Xem tiền cơm của bạn tháng này"),
         BotCommand("dong_tien", "Báo đã đóng tiền tháng này"),
+        BotCommand("qr", "Xem mã QR chuyển tiền"),
         BotCommand("help", "Xem danh sách lệnh"),
     ]
     admin_commands = user_commands + [
@@ -142,6 +144,8 @@ async def main() -> None:
     for handler in payment.get_handlers():
         tg_app.add_handler(handler)
     for handler in help.get_handlers():
+        tg_app.add_handler(handler)
+    for handler in qr.get_handlers():
         tg_app.add_handler(handler)
 
     scheduler = build_scheduler(tg_app)
