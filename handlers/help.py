@@ -6,8 +6,10 @@ import config
 
 USER_COMMANDS = """
 *📋 Lệnh dành cho mọi người:*
-/summary — Xem tổng tiền cơm phải đóng tháng này
+/summary — Xem tổng kết đặt cơm tháng này
+/tien — Xem tiền cơm của bạn tháng này
 /dong\\_tien — Báo đã đóng tiền tháng này
+/qr — Xem mã QR chuyển tiền
 /help — Xem danh sách lệnh
 """.strip()
 
