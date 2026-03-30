@@ -30,6 +30,7 @@ async def post_init(app: Application) -> None:
     # Lệnh hiện cho mọi người khi gõ /
     user_commands = [
         BotCommand("summary", "Xem tổng kết đặt cơm tháng này"),
+        BotCommand("tien", "Xem tiền cơm của bạn tháng này"),
         BotCommand("dong_tien", "Báo đã đóng tiền tháng này"),
         BotCommand("help", "Xem danh sách lệnh"),
     ]
