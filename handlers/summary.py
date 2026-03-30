@@ -58,12 +58,17 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     lines = []
     max_name_len = max(len(r["full_name"]) for r in rows)
+    name_header = "Tên".ljust(max_name_len)
+    header_line = f" #  {name_header}  Suất      Tiền  TT"
+    separator = "─" * len(header_line)
+    lines.append(header_line)
+    lines.append(separator)
     for i, r in enumerate(rows, 1):
         name = r["full_name"].ljust(max_name_len)
         count = r["meal_count"]
         total = f"{r['total']:>10,}đ"
         status = "✅" if r.get("user_id") in paid_ids else "❌"
-        lines.append(f"{i:>2}. {name}  {count:>2} suất  {total}  {status}")
+        lines.append(f"{i:>2}. {name}  {count:>2}    {total}  {status}")
 
     table = "\n".join(lines)
     text = f"{header}\n\n```\n{table}\n```"
