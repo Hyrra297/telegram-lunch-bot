@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import re
 import pytz
 from datetime import datetime
@@ -7,6 +8,17 @@ from telegram.ext import ContextTypes, CommandHandler
 
 import config
 import database as db
+
+AUTO_DELETE_SECONDS = 10
+
+
+async def _auto_delete(message, delay=AUTO_DELETE_SECONDS):
+    """Xóa tin nhắn sau delay giây. Bỏ qua lỗi nếu không xóa được."""
+    await asyncio.sleep(delay)
+    try:
+        await message.delete()
+    except Exception:
+        pass
 
 
 def _current_month(tz: str = config.TIMEZONE) -> str:
@@ -51,7 +63,12 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}\n✅ = Đã đóng  ❌ = Chưa đóng"
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+    reply = await update.message.reply_text(text, parse_mode="Markdown")
+
+    # Auto-delete cả lệnh và reply trong nhóm
+    if update.effective_chat.type != "private":
+        asyncio.create_task(_auto_delete(update.message))
+        asyncio.create_task(_auto_delete(reply))
 
 
 async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -95,7 +112,12 @@ async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"{'─' * 28}"
     )
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+    reply = await update.message.reply_text(text, parse_mode="Markdown")
+
+    # Auto-delete cả lệnh và reply trong nhóm
+    if update.effective_chat.type != "private":
+        asyncio.create_task(_auto_delete(update.message))
+        asyncio.create_task(_auto_delete(reply))
 
 
 def get_handlers():
