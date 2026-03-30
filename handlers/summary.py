@@ -67,7 +67,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = r["full_name"].ljust(max_name_len)
         count = r["meal_count"]
         total = f"{r['total']:>10,}đ"
-        status = "✅" if r.get("user_id") in paid_ids else "❌"
+        status = "[v]" if r.get("user_id") in paid_ids else "[x]"
         lines.append(f"{i:>2}. {name}  {count:>2}    {total}  {status}")
 
     table = "\n".join(lines)
