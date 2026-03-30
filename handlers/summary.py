@@ -57,14 +57,16 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     paid_ids = await db.get_paid_user_ids(year_month)
 
     lines = []
+    max_name_len = max(len(r["full_name"]) for r in rows)
     for i, r in enumerate(rows, 1):
-        name = r["full_name"]
+        name = r["full_name"].ljust(max_name_len)
         count = r["meal_count"]
-        total = r["total"]
+        total = f"{r['total']:>10,}đ"
         status = "✅" if r.get("user_id") in paid_ids else "❌"
-        lines.append(f"{i}. {status} *{name}*: {count} suất = *{total:,}đ*")
+        lines.append(f"{status} {name}  {count:>2} suất  {total}")
 
-    text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}\n✅ = Đã đóng  ❌ = Chưa đóng"
+    table = "\n".join(lines)
+    text = f"{header}\n\n```\n{table}\n```\n✅ = Đã đóng  ❌ = Chưa đóng"
 
     await update.message.reply_text(text, parse_mode="Markdown")
 
