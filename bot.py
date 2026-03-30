@@ -6,7 +6,7 @@ from telegram.ext import Application
 
 import config
 import database as db
-from handlers import vote, admin, summary, payment, help
+from handlers import vote, admin, summary, payment, help, qr
 from scheduler import build_scheduler
 
 logging.basicConfig(
@@ -32,6 +32,7 @@ async def post_init(app: Application) -> None:
         BotCommand("summary", "Xem tổng kết đặt cơm tháng này"),
         BotCommand("tien", "Xem tiền cơm của bạn tháng này"),
         BotCommand("dong_tien", "Báo đã đóng tiền tháng này"),
+        BotCommand("qr", "Xem mã QR chuyển tiền"),
         BotCommand("help", "Xem danh sách lệnh"),
     ]
     await app.bot.set_my_commands(user_commands)
@@ -71,6 +72,8 @@ def main() -> None:
     for handler in payment.get_handlers():
         app.add_handler(handler)
     for handler in help.get_handlers():
+        app.add_handler(handler)
+    for handler in qr.get_handlers():
         app.add_handler(handler)
 
     logger.info("Bot is running...")
