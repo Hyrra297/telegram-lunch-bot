@@ -168,7 +168,7 @@ async def _scheduled_monthly_summary(app: Application) -> None:
         lines = []
         for i, r in enumerate(rows, 1):
             status = "✅" if r.get("user_id") in paid_ids else "❌"
-            lines.append(f"{i}. {status} {r['full_name']}: {r['meal_count']} suất = *{r['total']:,}đ*")
+            lines.append(f"{i}. {status} *{r['full_name']}*: {r['meal_count']} suất = *{r['total']:,}đ*")
 
         text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}\n✅ = Đã đóng  ❌ = Chưa đóng"
 
