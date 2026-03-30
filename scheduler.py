@@ -140,6 +140,48 @@ async def _scheduled_close_and_announce(app: Application) -> None:
         logger.exception("❌ close_and_announce failed for %s", today)
 
 
+async def _scheduled_monthly_summary(app: Application) -> None:
+    """14:00 ngày cuối tháng — gửi tổng kết tiền cơm vào nhóm."""
+    from datetime import datetime
+    now = datetime.now(pytz.timezone(config.TIMEZONE))
+
+    # Kiểm tra có phải ngày cuối tháng không
+    import calendar
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    if now.day != last_day:
+        return
+
+    year_month = now.strftime("%Y-%m")
+    logger.info("⏰ Scheduler: monthly_summary triggered for %s", year_month)
+
+    try:
+        rows = await db.get_monthly_summary(year_month)
+        if not rows:
+            return
+
+        rows.sort(key=lambda r: r["total"], reverse=True)
+        paid_ids = await db.get_paid_user_ids(year_month)
+
+        year, month = year_month.split("-")
+        header = f"📊 *Tổng kết tháng {int(month)}/{year}*\n{'─' * 28}"
+
+        lines = []
+        for i, r in enumerate(rows, 1):
+            status = "✅" if r.get("user_id") in paid_ids else "❌"
+            lines.append(f"{i}. {status} {r['full_name']}: {r['meal_count']} suất = *{r['total']:,}đ*")
+
+        text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}\n✅ = Đã đóng  ❌ = Chưa đóng"
+
+        await app.bot.send_message(
+            chat_id=config.CHAT_ID,
+            text=text,
+            parse_mode="Markdown",
+        )
+        logger.info("✅ Monthly summary sent for %s", year_month)
+    except Exception:
+        logger.exception("❌ monthly_summary failed for %s", year_month)
+
+
 def build_scheduler(app: Application) -> AsyncIOScheduler:
     tz = pytz.timezone(config.TIMEZONE)
 
@@ -160,5 +202,10 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         _scheduled_close_and_announce,
         trigger=CronTrigger(hour=close_h, minute=close_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="close_vote", replace_existing=True, misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        _scheduled_monthly_summary,
+        trigger=CronTrigger(hour=14, minute=0, day_of_week="mon-sun", timezone=tz),
+        args=[app], id="monthly_summary", replace_existing=True, misfire_grace_time=300,
     )
     return scheduler
