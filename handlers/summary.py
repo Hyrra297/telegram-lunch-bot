@@ -26,6 +26,9 @@ def _current_month(tz: str = config.TIMEZONE) -> str:
 
 
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user.id not in config.ADMIN_IDS:
+        return
+
     if context.args:
         year_month = context.args[0]
         if not re.match(r"^\d{4}-\d{2}$", year_month):
