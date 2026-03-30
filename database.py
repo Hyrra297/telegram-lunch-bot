@@ -366,7 +366,7 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
         extra = " AND ve.date <= ?" if max_date else ""
         params = (f"{year_month}-%", max_date) if max_date else (f"{year_month}-%",)
         async with db.execute(
-            f"""SELECT u.full_name, u.rotation_index, ve.date, dv.price, dv.ship_fee
+            f"""SELECT u.id AS user_id, u.full_name, u.rotation_index, ve.date, dv.price, dv.ship_fee
                FROM users u
                JOIN vote_entries ve ON u.id = ve.user_id
                JOIN daily_votes dv  ON dv.date = ve.date
@@ -382,15 +382,15 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
         day_voter_counts[e["date"]] = day_voter_counts.get(e["date"], 0) + 1
 
     # Aggregate per user
-    totals: dict[str, dict] = {}
+    totals: dict[int, dict] = {}
     for e in entries:
-        name = e["full_name"]
-        if name not in totals:
-            totals[name] = {"full_name": name, "meal_count": 0, "total": 0, "price_per_meal": e["price"]}
+        uid = e["user_id"]
+        if uid not in totals:
+            totals[uid] = {"user_id": uid, "full_name": e["full_name"], "meal_count": 0, "total": 0, "price_per_meal": e["price"]}
         count = day_voter_counts[e["date"]]
         ship = e.get("ship_fee") or 0
-        totals[name]["meal_count"] += 1
-        totals[name]["total"] += e["price"] + round(ship / count)
+        totals[uid]["meal_count"] += 1
+        totals[uid]["total"] += e["price"] + round(ship / count)
 
     return list(totals.values())
 

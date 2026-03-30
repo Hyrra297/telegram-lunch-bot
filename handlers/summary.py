@@ -36,14 +36,20 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    # Sắp xếp theo tổng tiền giảm dần
+    rows.sort(key=lambda r: r["total"], reverse=True)
+
+    paid_ids = await db.get_paid_user_ids(year_month)
+
     lines = []
-    for r in rows:
+    for i, r in enumerate(rows, 1):
         name = r["full_name"]
         count = r["meal_count"]
         total = r["total"]
-        lines.append(f"👤 {name:<16}: {count} suất = *{total:,}đ*")
+        status = "✅" if r.get("user_id") in paid_ids else "❌"
+        lines.append(f"{i}. {status} {name}: {count} suất = *{total:,}đ*")
 
-    text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}"
+    text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}\n✅ = Đã đóng  ❌ = Chưa đóng"
 
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -63,15 +69,7 @@ async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = await db.get_monthly_summary(year_month)
 
     year, month = year_month.split("-")
-    my_row = next((r for r in rows if r["full_name"] == user.full_name), None)
-
-    # Fallback: tìm theo user_id nếu full_name không khớp
-    if not my_row:
-        detail = await db.get_monthly_detail(year_month)
-        for m in detail.get("members", []):
-            if m.get("user_id") == user.id:
-                my_row = m
-                break
+    my_row = next((r for r in rows if r.get("user_id") == user.id), None)
 
     if not my_row:
         await update.message.reply_text(
