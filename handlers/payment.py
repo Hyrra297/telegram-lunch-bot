@@ -30,6 +30,8 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     mention = f"@{user.username}" if user.username else f"*{user.full_name}*"
+    is_private = update.effective_chat.type == "private"
+
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             "✅ Xác nhận đã nhận tiền",
@@ -37,31 +39,31 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     ]])
 
-    # Gửi private cho user
-    try:
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=f"💰 Đã ghi nhận bạn báo đóng tiền {_month_label(year_month)}.\nChờ admin xác nhận nhé!",
-            parse_mode="Markdown",
-        )
-    except Exception:
-        # User chưa start bot, gửi reply trong nhóm
-        await update.message.reply_text(
-            f"💰 Đã ghi nhận. Chờ admin xác nhận nhé!\n\n💡 _Nhắn /start cho bot riêng để nhận thông báo qua private._",
-            parse_mode="Markdown",
-        )
+    # Phản hồi cho user
+    await update.message.reply_text(
+        f"💰 Đã ghi nhận bạn báo đóng tiền {_month_label(year_month)}.\nChờ admin xác nhận nhé!",
+        parse_mode="Markdown",
+    )
 
-    # Gửi private cho admin kèm nút xác nhận
+    # Gửi nút xác nhận cho admin
     for admin_id in config.ADMIN_IDS:
-        try:
-            await context.bot.send_message(
-                chat_id=admin_id,
-                text=f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nNhấn nút bên dưới để xác nhận.",
+        # Nếu admin là người gõ lệnh trong private → gửi nút ngay tại đó
+        if is_private and user.id == admin_id:
+            await update.message.reply_text(
+                f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nNhấn nút bên dưới để xác nhận.",
                 parse_mode="Markdown",
                 reply_markup=keyboard,
             )
-        except Exception:
-            pass
+        else:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nNhấn nút bên dưới để xác nhận.",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+            except Exception:
+                pass
 
 
 async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
