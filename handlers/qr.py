@@ -3,7 +3,7 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 
-QR_DIR = Path("static/qr")
+QR_DIR = Path(__file__).resolve().parent.parent / "static" / "qr"
 ALLOWED_EXT = [".jpg", ".jpeg", ".png", ".webp", ".gif"]
 
 
