@@ -77,7 +77,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Xóa lệnh /summary của người gõ trong nhóm, giữ reply của bot
     if update.effective_chat.type != "private":
-        asyncio.create_task(_auto_delete(update.message, delay=3))
+        asyncio.create_task(_auto_delete(update.message, delay=10))
 
 
 async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
