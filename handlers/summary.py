@@ -59,7 +59,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = []
     max_name_len = max(len(r["full_name"]) for r in rows)
     name_header = "Tên".ljust(max_name_len)
-    header_line = f" #  {name_header}  Suất      Tiền    TT"
+    header_line = f" #  {name_header}  Suất      Tiền      TT"
     separator = "─" * len(header_line)
     lines.append(header_line)
     lines.append(separator)
