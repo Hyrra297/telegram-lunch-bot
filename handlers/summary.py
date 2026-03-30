@@ -66,12 +66,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}\n✅ = Đã đóng  ❌ = Chưa đóng"
 
-    reply = await update.message.reply_text(text, parse_mode="Markdown")
-
-    # Auto-delete cả lệnh và reply trong nhóm
-    if update.effective_chat.type != "private":
-        asyncio.create_task(_auto_delete(update.message))
-        asyncio.create_task(_auto_delete(reply))
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
