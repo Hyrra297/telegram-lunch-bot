@@ -63,10 +63,10 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         count = r["meal_count"]
         total = f"{r['total']:>10,}đ"
         status = "✅" if r.get("user_id") in paid_ids else "❌"
-        lines.append(f"{status} {name}  {count:>2} suất  {total}")
+        lines.append(f"{name}  {count:>2} suất  {total}  {status}")
 
     table = "\n".join(lines)
-    text = f"{header}\n\n```\n{table}\n```\n✅ = Đã đóng  ❌ = Chưa đóng"
+    text = f"{header}\n\n```\n{table}\n```"
 
     await update.message.reply_text(text, parse_mode="Markdown")
 
