@@ -36,12 +36,32 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             callback_data=f"{CALLBACK_PREFIX}{user.id}:{year_month}",
         )
     ]])
-    await context.bot.send_message(
-        chat_id=config.CHAT_ID,
-        text=f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nAdmin vui lòng xác nhận.",
-        parse_mode="Markdown",
-        reply_markup=keyboard,
-    )
+
+    # Gửi private cho user
+    try:
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=f"💰 Đã ghi nhận bạn báo đóng tiền {_month_label(year_month)}.\nChờ admin xác nhận nhé!",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        # User chưa start bot, gửi reply trong nhóm
+        await update.message.reply_text(
+            f"💰 Đã ghi nhận. Chờ admin xác nhận nhé!\n\n💡 _Nhắn /start cho bot riêng để nhận thông báo qua private._",
+            parse_mode="Markdown",
+        )
+
+    # Gửi private cho admin kèm nút xác nhận
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nNhấn nút bên dưới để xác nhận.",
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        except Exception:
+            pass
 
 
 async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -72,15 +92,29 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     mention = f"@{member['username']}" if member and member["username"] else f"*{name}*"
     admin_name = query.from_user.full_name
 
-    # Xoá nút khỏi tin nhắn cũ
-    await query.edit_message_reply_markup(reply_markup=None)
+    # Xoá nút khỏi tin nhắn cũ (admin private chat)
+    await query.edit_message_text(
+        text=query.message.text + f"\n\n✅ Đã xác nhận bởi {admin_name}.",
+        parse_mode="Markdown",
+        reply_markup=None,
+    )
 
-    # Thông báo công khai
+    # Thông báo công khai vào nhóm
     await context.bot.send_message(
         chat_id=config.CHAT_ID,
         text=f"✅ {mention} đã đóng tiền {_month_label(year_month)} — xác nhận bởi {admin_name}.",
         parse_mode="Markdown",
     )
+
+    # Thông báo private cho user
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ Tiền {_month_label(year_month)} của bạn đã được xác nhận bởi {admin_name}!",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
 
 
 def get_handlers():
