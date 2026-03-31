@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import logging
 import pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -7,6 +8,8 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 import config
 import database as db
+
+logger = logging.getLogger(__name__)
 
 CALLBACK_PREFIX = "pay:confirm:"
 AUTO_DELETE_SECONDS = 10
@@ -61,25 +64,27 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         asyncio.create_task(_auto_delete(update.message))
         asyncio.create_task(_auto_delete(reply))
 
-    # Gửi nút xác nhận cho admin
+    # Gửi nút xác nhận cho admin (có retry nếu rate limit)
+    admin_text = f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nNhấn nút bên dưới để xác nhận."
     for admin_id in config.ADMIN_IDS:
-        # Nếu admin là người gõ lệnh trong private → gửi nút ngay tại đó
         if is_private and user.id == admin_id:
             await update.message.reply_text(
-                f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nNhấn nút bên dưới để xác nhận.",
-                parse_mode="Markdown",
-                reply_markup=keyboard,
+                admin_text, parse_mode="Markdown", reply_markup=keyboard,
             )
         else:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=f"💰 {mention} báo đã đóng tiền {_month_label(year_month)}.\n\nNhấn nút bên dưới để xác nhận.",
-                    parse_mode="Markdown",
-                    reply_markup=keyboard,
-                )
-            except Exception:
-                pass
+            for attempt in range(3):
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_text,
+                        parse_mode="Markdown",
+                        reply_markup=keyboard,
+                    )
+                    break
+                except Exception as e:
+                    logger.warning(f"dong_tien: gửi admin {admin_id} thất bại (lần {attempt+1}): {e}")
+                    if attempt < 2:
+                        await asyncio.sleep(1)
 
 
 async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -132,8 +137,8 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             text=f"✅ Tiền {_month_label(year_month)} của bạn đã được xác nhận bởi {admin_name}!",
             parse_mode="Markdown",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"dong_tien: gửi private user {user_id} thất bại: {e}")
 
 
 def get_handlers():
