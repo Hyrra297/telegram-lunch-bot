@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import logging
 import re
 import pytz
 from datetime import datetime
@@ -9,16 +10,19 @@ from telegram.ext import ContextTypes, CommandHandler
 import config
 import database as db
 
+logger = logging.getLogger(__name__)
+
 AUTO_DELETE_SECONDS = 10
 
 
 async def _auto_delete(message, delay=AUTO_DELETE_SECONDS):
-    """Xóa tin nhắn sau delay giây. Bỏ qua lỗi nếu không xóa được."""
+    """Xóa tin nhắn sau delay giây."""
     await asyncio.sleep(delay)
     try:
         await message.delete()
-    except Exception:
-        pass
+        logger.info(f"Auto-deleted message {message.message_id}")
+    except Exception as e:
+        logger.warning(f"Auto-delete failed for message {message.message_id}: {e}")
 
 
 def _current_month(tz: str = config.TIMEZONE) -> str:
@@ -76,7 +80,10 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text, parse_mode="Markdown")
 
     # Xóa lệnh /summary của người gõ trong nhóm, giữ reply của bot
-    if update.effective_chat.type != "private":
+    chat_type = update.effective_chat.type
+    logger.info(f"Summary: chat_type={chat_type}, chat_id={update.effective_chat.id}")
+    if chat_type != "private":
+        logger.info(f"Scheduling auto-delete for message {update.message.message_id}")
         asyncio.create_task(_auto_delete(update.message, delay=10))
 
 
