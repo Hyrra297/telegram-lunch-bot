@@ -43,7 +43,10 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    mention = f"@{user.username}" if user.username else f"*{user.full_name}*"
+    def _esc(s: str) -> str:
+        return s.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+
+    mention = f"@{_esc(user.username)}" if user.username else f"*{_esc(user.full_name)}*"
     is_private = update.effective_chat.type == "private"
 
     keyboard = InlineKeyboardMarkup([[
