@@ -103,11 +103,14 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     user_id_str, year_month = payload.rsplit(":", 1)
     user_id = int(user_id_str)
 
+    def _esc(s: str) -> str:
+        return s.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+
     paid_ids = await db.get_paid_user_ids(year_month)
     if user_id in paid_ids:
         await query.edit_message_text(
-            query.message.text + "\n\n✅ *(Đã xác nhận trước đó)*",
-            parse_mode="Markdown",
+            query.message.text_markdown_v2 if query.message.text_markdown_v2 else query.message.text
+            + "\n\n✅ *(Đã xác nhận trước đó)*",
         )
         return
 
@@ -115,13 +118,12 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
 
     member = await db.get_user(user_id)
     name = member["full_name"] if member else str(user_id)
-    mention = f"@{member['username']}" if member and member["username"] else f"*{name}*"
-    admin_name = query.from_user.full_name
+    mention = f"@{_esc(member['username'])}" if member and member["username"] else f"*{_esc(name)}*"
+    admin_name = _esc(query.from_user.full_name)
 
-    # Xoá nút khỏi tin nhắn cũ (admin private chat)
+    # Xoá nút khỏi tin nhắn cũ (admin private chat) — không dùng Markdown để tránh lỗi parse
     await query.edit_message_text(
-        text=query.message.text + f"\n\n✅ Đã xác nhận bởi {admin_name}.",
-        parse_mode="Markdown",
+        text=query.message.text + f"\n\n✅ Đã xác nhận bởi {query.from_user.full_name}.",
         reply_markup=None,
     )
 
