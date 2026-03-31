@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -8,6 +9,16 @@ import config
 import database as db
 
 CALLBACK_PREFIX = "pay:confirm:"
+AUTO_DELETE_SECONDS = 10
+
+
+async def _auto_delete(message, delay=AUTO_DELETE_SECONDS):
+    """Xóa tin nhắn sau delay giây."""
+    await asyncio.sleep(delay)
+    try:
+        await message.delete()
+    except Exception:
+        pass
 
 
 def _current_month(tz: str = config.TIMEZONE) -> str:
@@ -40,10 +51,15 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]])
 
     # Phản hồi cho user
-    await update.message.reply_text(
+    reply = await update.message.reply_text(
         f"💰 Đã ghi nhận bạn báo đóng tiền {_month_label(year_month)}.\nChờ admin xác nhận nhé!",
         parse_mode="Markdown",
     )
+
+    # Auto-delete lệnh + reply trong nhóm
+    if not is_private:
+        asyncio.create_task(_auto_delete(update.message))
+        asyncio.create_task(_auto_delete(reply))
 
     # Gửi nút xác nhận cho admin
     for admin_id in config.ADMIN_IDS:
@@ -101,12 +117,13 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         reply_markup=None,
     )
 
-    # Thông báo công khai vào nhóm
-    await context.bot.send_message(
+    # Thông báo công khai vào nhóm + auto-delete sau 10s
+    group_msg = await context.bot.send_message(
         chat_id=config.CHAT_ID,
         text=f"✅ {mention} đã đóng tiền {_month_label(year_month)} — xác nhận bởi {admin_name}.",
         parse_mode="Markdown",
     )
+    asyncio.create_task(_auto_delete(group_msg))
 
     # Thông báo private cho user
     try:
