@@ -206,6 +206,17 @@ async def set_vote_closed(date: str) -> None:
         await db.commit()
 
 
+async def reopen_vote(date: str) -> bool:
+    """Mở lại vote đã đóng. Chỉ mở nếu chưa chọn người (picker_user_id is NULL)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE daily_votes SET status = 'open' WHERE date = ? AND status = 'closed' AND picker_user_id IS NULL",
+            (date,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def set_cost_per_person(date: str, cost: int) -> None:
     """Ghi chi phí mỗi người vào daily_votes (chạy lúc 12h)."""
     async with aiosqlite.connect(DB_PATH) as db:

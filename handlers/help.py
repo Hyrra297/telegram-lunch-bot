@@ -36,6 +36,7 @@ ADMIN_COMMANDS = """
 /rotation — Xem thứ tự lượt lấy cơm và trả hộp
 /reset\\_vote — Xoá vote hôm nay để mở lại
 /skip\\_today — Hôm nay không đặt cơm
+/reopen\\_vote — Mở lại vote sau khi đã đóng
 """.strip()
 
 

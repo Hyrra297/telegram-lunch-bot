@@ -145,6 +145,28 @@ async def skip_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(f"⏭️ Đã bỏ qua ngày {today} — hôm nay không đặt cơm.")
 
 
+@_require_admin
+async def reopen_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    success = await db.reopen_vote(today)
+    if success:
+        await update.message.reply_text("✅ Đã mở lại vote hôm nay.")
+        await context.bot.send_message(
+            chat_id=config.CHAT_ID,
+            text="🔓 Vote đã được mở lại! Ai chưa vote thì vote nhanh nhé.",
+        )
+    else:
+        daily = await db.get_daily_vote(today)
+        if not daily:
+            await update.message.reply_text("❌ Hôm nay chưa có vote nào.")
+        elif daily["status"] == "open":
+            await update.message.reply_text("ℹ️ Vote hôm nay đang mở rồi.")
+        elif daily.get("picker_user_id"):
+            await update.message.reply_text("❌ Không mở lại được — đã chốt phân công rồi.")
+        else:
+            await update.message.reply_text("❌ Không mở lại được.")
+
+
 def get_handlers():
     return [
         CommandHandler("set_price", set_price),
@@ -154,4 +176,5 @@ def get_handlers():
         CommandHandler("rotation", show_rotation),
         CommandHandler("reset_vote", reset_vote),
         CommandHandler("skip_today", skip_today),
+        CommandHandler("reopen_vote", reopen_vote),
     ]

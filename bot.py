@@ -48,6 +48,7 @@ async def post_init(app: Application) -> None:
         BotCommand("set_time", "Đổi giờ mở/đóng vote"),
         BotCommand("rotation", "Xem thứ tự lượt lấy cơm và trả hộp"),
         BotCommand("reset_vote", "Xoá vote hôm nay để mở lại"),
+        BotCommand("reopen_vote", "Mở lại vote sau khi đã đóng"),
     ]
     for admin_id in config.ADMIN_IDS:
         try:
