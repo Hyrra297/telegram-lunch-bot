@@ -104,7 +104,7 @@ async def _scheduled_close_vote(app: Application) -> None:
         voters = await db.get_voters(today)
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
-            text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm hôm nay.\nPhân công sẽ thông báo lúc {config.VOTE_CLOSE_TIME}.",
+            text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm hôm nay.",
             parse_mode="Markdown",
         )
         logger.info("✅ Vote closed for %s, %d voters", today, len(voters))
