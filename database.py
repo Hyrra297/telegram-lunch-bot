@@ -559,20 +559,34 @@ async def toggle_monthly_paid(year_month: str, user_id: int) -> bool:
 
 
 async def get_available_months() -> list:
-    """Returns list of {value: 'YYYY-MM', label: 'Tháng M/YYYY'} for months with data."""
+    """Returns list of {value: 'YYYY-MM', label: 'Tháng M/YYYY'} for months with data.
+    Always includes current month even if no closed data yet."""
+    import pytz
+    from datetime import datetime
+    now = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))
+    current_ym = now.strftime("%Y-%m")
+
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             """SELECT DISTINCT substr(date, 1, 7) AS ym
                FROM daily_votes
-               WHERE status = 'closed'
                ORDER BY ym DESC"""
         ) as cur:
             rows = await cur.fetchall()
 
+    seen = set()
     months = []
+    # Thêm tháng hiện tại đầu tiên nếu chưa có
+    if current_ym not in {r[0] for r in rows}:
+        year, m = current_ym.split("-")
+        months.append({"value": current_ym, "label": f"Tháng {int(m)}/{year}"})
+        seen.add(current_ym)
+
     for (ym,) in rows:
-        year, m = ym.split("-")
-        months.append({"value": ym, "label": f"Tháng {int(m)}/{year}"})
+        if ym not in seen:
+            year, m = ym.split("-")
+            months.append({"value": ym, "label": f"Tháng {int(m)}/{year}"})
+            seen.add(ym)
     return months
 
 
