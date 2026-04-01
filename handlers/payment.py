@@ -108,39 +108,46 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
 
     paid_ids = await db.get_paid_user_ids(year_month)
     if user_id in paid_ids:
-        await query.edit_message_text(
-            query.message.text_markdown_v2 if query.message.text_markdown_v2 else query.message.text
-            + "\n\n✅ *(Đã xác nhận trước đó)*",
-        )
+        try:
+            await query.edit_message_text(
+                text=query.message.text + "\n\n✅ (Đã xác nhận trước đó)",
+                reply_markup=None,
+            )
+        except Exception:
+            pass
         return
 
+    # Lưu DB trước — quan trọng nhất
     await db.toggle_monthly_paid(year_month, user_id)
 
     member = await db.get_user(user_id)
     name = member["full_name"] if member else str(user_id)
-    mention = f"@{_esc(member['username'])}" if member and member["username"] else f"*{_esc(name)}*"
-    admin_name = _esc(query.from_user.full_name)
+    admin_name = query.from_user.full_name
 
-    # Xoá nút khỏi tin nhắn cũ (admin private chat) — không dùng Markdown để tránh lỗi parse
-    await query.edit_message_text(
-        text=query.message.text + f"\n\n✅ Đã xác nhận bởi {query.from_user.full_name}.",
-        reply_markup=None,
-    )
+    # Xoá nút khỏi tin nhắn cũ — plain text, không dùng Markdown
+    try:
+        await query.edit_message_text(
+            text=query.message.text + f"\n\n✅ Đã xác nhận bởi {admin_name}.",
+            reply_markup=None,
+        )
+    except Exception as e:
+        logger.warning(f"Edit confirm message failed: {e}")
 
-    # Thông báo công khai vào nhóm + auto-delete sau 10s
-    group_msg = await context.bot.send_message(
-        chat_id=config.CHAT_ID,
-        text=f"✅ {mention} đã đóng tiền {_month_label(year_month)} — xác nhận bởi {admin_name}.",
-        parse_mode="Markdown",
-    )
-    asyncio.create_task(_auto_delete(group_msg))
+    # Thông báo công khai vào nhóm — plain text, không dùng Markdown
+    try:
+        group_msg = await context.bot.send_message(
+            chat_id=config.CHAT_ID,
+            text=f"✅ {name} đã đóng tiền {_month_label(year_month)} — xác nhận bởi {admin_name}.",
+        )
+        asyncio.create_task(_auto_delete(group_msg))
+    except Exception as e:
+        logger.warning(f"Send group confirm failed: {e}")
 
     # Thông báo private cho user
     try:
         await context.bot.send_message(
             chat_id=user_id,
             text=f"✅ Tiền {_month_label(year_month)} của bạn đã được xác nhận bởi {admin_name}!",
-            parse_mode="Markdown",
         )
     except Exception as e:
         logger.warning(f"dong_tien: gửi private user {user_id} thất bại: {e}")
