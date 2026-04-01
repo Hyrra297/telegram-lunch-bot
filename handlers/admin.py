@@ -146,6 +146,52 @@ async def skip_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 @_require_admin
+async def assign(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Phân công thủ công khi vote đã đóng nhưng chưa có picker/returner."""
+    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    daily = await db.get_daily_vote(today)
+    if not daily:
+        await update.message.reply_text("❌ Hôm nay chưa có vote nào.")
+        return
+    if daily["status"] != "closed":
+        await update.message.reply_text("❌ Vote chưa đóng. Đóng vote trước rồi mới phân công.")
+        return
+    if daily.get("picker_user_id"):
+        await update.message.reply_text("ℹ️ Đã phân công rồi. Dùng /reset_vote nếu muốn làm lại.")
+        return
+
+    voters = await db.get_voters(today)
+    if not voters:
+        await update.message.reply_text("❌ Hôm nay không có ai vote.")
+        return
+
+    picker = await db.pick_next_fetcher(today)
+    returner = await db.pick_next_returner(today, picker["id"])
+    await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
+
+    def _esc(s: str) -> str:
+        return s.replace("_", "\\_")
+
+    picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
+    if returner and returner["id"] != picker["id"]:
+        returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
+        roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
+    else:
+        roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
+
+    price = daily.get("price") or config.PRICE_PER_MEAL
+    ship_fee = daily.get("ship_fee") or config.SHIP_FEE
+    cost_per_person = price + round(ship_fee / len(voters))
+    await db.set_cost_per_person(today, cost_per_person)
+
+    await context.bot.send_message(
+        chat_id=config.CHAT_ID,
+        text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
+        parse_mode="Markdown",
+    )
+
+
+@_require_admin
 async def reopen_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     success = await db.reopen_vote(today)
@@ -176,5 +222,6 @@ def get_handlers():
         CommandHandler("rotation", show_rotation),
         CommandHandler("reset_vote", reset_vote),
         CommandHandler("skip_today", skip_today),
+        CommandHandler("assign", assign),
         CommandHandler("reopen_vote", reopen_vote),
     ]
