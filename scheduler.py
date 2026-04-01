@@ -159,7 +159,7 @@ async def _scheduled_announce_roles(app: Application) -> None:
 
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
-            text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}\n\n💰 Mỗi người: *{cost_per_person:,}đ*",
+            text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
             parse_mode="Markdown",
         )
         logger.info("✅ Roles assigned for %s, picker=%s, cost=%s", today, picker["username"], cost_per_person)
