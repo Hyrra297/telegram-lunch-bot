@@ -68,19 +68,17 @@ async def _scheduled_open_vote(app: Application) -> None:
         logger.exception("❌ open_vote failed for %s", today_str)
 
 
-async def _scheduled_close_and_announce(app: Application) -> None:
-    """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp."""
+async def _scheduled_close_vote(app: Application) -> None:
+    """09:30 — Đóng vote, chưa chọn người."""
     from datetime import datetime
     today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
-    logger.info("⏰ Scheduler: close_and_announce triggered for %s", today)
+    logger.info("⏰ Scheduler: close_vote triggered for %s", today)
 
     try:
         daily = await db.get_daily_vote(today)
         if not daily or daily["status"] != "open":
             logger.info("Vote not open for %s (status=%s), skipping close.", today, daily["status"] if daily else "no record")
             return
-
-        voters = await db.get_voters(today)
 
         # Đóng poll / keyboard
         if daily.get("poll_id") and daily.get("poll_message_id"):
@@ -103,10 +101,39 @@ async def _scheduled_close_and_announce(app: Application) -> None:
 
         await db.set_vote_closed(today)
 
+        voters = await db.get_voters(today)
+        await app.bot.send_message(
+            chat_id=config.CHAT_ID,
+            text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm hôm nay.\nPhân công sẽ thông báo lúc {config.VOTE_CLOSE_TIME}.",
+            parse_mode="Markdown",
+        )
+        logger.info("✅ Vote closed for %s, %d voters", today, len(voters))
+    except Exception:
+        logger.exception("❌ close_vote failed for %s", today)
+
+
+async def _scheduled_announce_roles(app: Application) -> None:
+    """10:30 — Chọn và thông báo người lấy cơm + trả hộp."""
+    from datetime import datetime
+    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    logger.info("⏰ Scheduler: announce_roles triggered for %s", today)
+
+    try:
+        daily = await db.get_daily_vote(today)
+        if not daily or daily["status"] != "closed":
+            logger.info("Vote not closed for %s, skipping announce.", today)
+            return
+
+        # Đã chọn người rồi thì skip
+        if daily.get("picker_user_id"):
+            logger.info("Already assigned for %s, skipping.", today)
+            return
+
+        voters = await db.get_voters(today)
         if not voters:
             await app.bot.send_message(
                 chat_id=config.CHAT_ID,
-                text="🔒 Vote đã đóng. Hôm nay không có ai đặt cơm.",
+                text="📢 Hôm nay không có ai đặt cơm.",
             )
             return
 
@@ -132,12 +159,12 @@ async def _scheduled_close_and_announce(app: Application) -> None:
 
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
-            text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm hôm nay.\n\n🍱 Phân công:\n{roles_text}",
+            text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}\n\n💰 Mỗi người: *{cost_per_person:,}đ*",
             parse_mode="Markdown",
         )
-        logger.info("✅ Vote closed for %s, picker=%s, cost=%s", today, picker["username"], cost_per_person)
+        logger.info("✅ Roles assigned for %s, picker=%s, cost=%s", today, picker["username"], cost_per_person)
     except Exception:
-        logger.exception("❌ close_and_announce failed for %s", today)
+        logger.exception("❌ announce_roles failed for %s", today)
 
 
 async def _scheduled_monthly_summary(app: Application) -> None:
@@ -189,8 +216,9 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         h, m = map(int, t.split(":"))
         return h, m
 
-    open_h, open_m = _hm(config.VOTE_OPEN_TIME)
-    close_h, close_m = _hm(config.VOTE_CLOSE_TIME)
+    open_h, open_m = _hm(config.VOTE_OPEN_TIME)       # 08:30
+    close_h, close_m = _hm(config.VOTE_CLOSE_TIME)   # 09:30
+    announce_h, announce_m = _hm(config.ANNOUNCE_TIME)  # 10:30
 
     scheduler = AsyncIOScheduler(timezone=tz)
     scheduler.add_job(
@@ -199,9 +227,14 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         args=[app], id="open_vote", replace_existing=True, misfire_grace_time=300,
     )
     scheduler.add_job(
-        _scheduled_close_and_announce,
+        _scheduled_close_vote,
         trigger=CronTrigger(hour=close_h, minute=close_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="close_vote", replace_existing=True, misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        _scheduled_announce_roles,
+        trigger=CronTrigger(hour=announce_h, minute=announce_m, day_of_week="mon-fri", timezone=tz),
+        args=[app], id="announce_roles", replace_existing=True, misfire_grace_time=300,
     )
     scheduler.add_job(
         _scheduled_monthly_summary,

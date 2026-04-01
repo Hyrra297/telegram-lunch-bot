@@ -151,8 +151,8 @@ async def main() -> None:
     scheduler = build_scheduler(tg_app)
     scheduler.start()
     logger.info(
-        "Scheduler: open=%s close=%s tz=%s",
-        config.VOTE_OPEN_TIME, config.VOTE_CLOSE_TIME, config.TIMEZONE,
+        "Scheduler: open=%s close=%s announce=%s tz=%s",
+        config.VOTE_OPEN_TIME, config.VOTE_CLOSE_TIME, config.ANNOUNCE_TIME, config.TIMEZONE,
     )
 
     await asyncio.gather(
