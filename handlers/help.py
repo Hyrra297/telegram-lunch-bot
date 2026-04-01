@@ -1,8 +1,19 @@
 from __future__ import annotations
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 
 import config
+
+AUTO_DELETE_SECONDS = 10
+
+
+async def _auto_delete(message, delay=AUTO_DELETE_SECONDS):
+    await asyncio.sleep(delay)
+    try:
+        await message.delete()
+    except Exception:
+        pass
 
 USER_COMMANDS = """
 *📋 Lệnh dành cho mọi người:*
@@ -32,7 +43,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     text = USER_COMMANDS
     if update.effective_user.id in config.ADMIN_IDS:
         text += "\n\n" + ADMIN_COMMANDS
-    await update.message.reply_text(text, parse_mode="Markdown")
+    reply = await update.message.reply_text(text, parse_mode="Markdown")
+
+    if update.effective_chat.type != "private":
+        asyncio.create_task(_auto_delete(reply))
 
 
 def get_handlers():
