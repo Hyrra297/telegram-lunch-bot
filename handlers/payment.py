@@ -37,17 +37,20 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     year_month = _current_month()
     paid_ids = await db.get_paid_user_ids(year_month)
+    is_private = update.effective_chat.type == "private"
+
     if user.id in paid_ids:
-        await update.message.reply_text(
+        reply = await update.message.reply_text(
             f"✅ {_month_label(year_month).capitalize()} của bạn đã được xác nhận rồi!"
         )
+        if not is_private:
+            asyncio.create_task(_auto_delete(reply))
         return
 
     def _esc(s: str) -> str:
         return s.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
 
     mention = f"@{_esc(user.username)}" if user.username else f"*{_esc(user.full_name)}*"
-    is_private = update.effective_chat.type == "private"
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
@@ -62,9 +65,8 @@ async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         parse_mode="Markdown",
     )
 
-    # Auto-delete lệnh + reply trong nhóm
+    # Xóa reply bot trong nhóm sau 10s, giữ lệnh user
     if not is_private:
-        asyncio.create_task(_auto_delete(update.message))
         asyncio.create_task(_auto_delete(reply))
 
     # Gửi nút xác nhận cho admin (có retry nếu rate limit)

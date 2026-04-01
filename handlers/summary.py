@@ -77,14 +77,11 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     table = "\n".join(lines)
     text = f"{header}\n\n```\n{table}\n```"
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+    reply = await update.message.reply_text(text, parse_mode="Markdown")
 
-    # Xóa lệnh /summary của người gõ trong nhóm, giữ reply của bot
-    chat_type = update.effective_chat.type
-    logger.info(f"Summary: chat_type={chat_type}, chat_id={update.effective_chat.id}")
-    if chat_type != "private":
-        logger.info(f"Scheduling auto-delete for message {update.message.message_id}")
-        asyncio.create_task(_auto_delete(update.message, delay=10))
+    # Xóa reply bot trong nhóm sau 10s, giữ lệnh user
+    if update.effective_chat.type != "private":
+        asyncio.create_task(_auto_delete(reply))
 
 
 async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -105,10 +102,12 @@ async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     my_row = next((r for r in rows if r.get("user_id") == user.id), None)
 
     if not my_row:
-        await update.message.reply_text(
+        reply = await update.message.reply_text(
             f"📊 Tháng {int(month)}/{year}: Bạn chưa có dữ liệu đặt cơm.",
             parse_mode="Markdown",
         )
+        if update.effective_chat.type != "private":
+            asyncio.create_task(_auto_delete(reply))
         return
 
     count = my_row["meal_count"]
@@ -130,9 +129,8 @@ async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     reply = await update.message.reply_text(text, parse_mode="Markdown")
 
-    # Auto-delete cả lệnh và reply trong nhóm
+    # Xóa reply bot trong nhóm sau 10s, giữ lệnh user
     if update.effective_chat.type != "private":
-        asyncio.create_task(_auto_delete(update.message))
         asyncio.create_task(_auto_delete(reply))
 
 
