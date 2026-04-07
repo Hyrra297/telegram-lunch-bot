@@ -1,23 +1,25 @@
-# fly.toml app configuration file generated for telegram-lunch-bot-q7s05w on 2026-03-10T02:01:24Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
-app = 'telegram-lunch-bot-q7s05w'
-primary_region = 'ams'
+app = 'telegram-lunch-bot'
+primary_region = 'sin'
 
 [build]
+
+[env]
+  PORT = '8080'
+  DB_PATH = '/data/lunch_bot.db'
+
+[[mounts]]
+  source = 'lunch_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
+  memory = '256mb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256

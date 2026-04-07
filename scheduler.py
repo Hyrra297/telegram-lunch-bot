@@ -68,65 +68,76 @@ async def _scheduled_open_vote(app: Application) -> None:
         logger.exception("❌ open_vote failed for %s", today_str)
 
 
-async def _scheduled_close_vote(app: Application) -> None:
-    """09:30 — Đóng vote, chưa chọn người."""
+async def _scheduled_vote_reminder(app: Application) -> None:
+    """09:30 — Nhắc nhở số người đã vote, vote vẫn mở."""
     from datetime import datetime
     today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
-    logger.info("⏰ Scheduler: close_vote triggered for %s", today)
+    logger.info("⏰ Scheduler: vote_reminder triggered for %s", today)
 
     try:
         daily = await db.get_daily_vote(today)
         if not daily or daily["status"] != "open":
-            logger.info("Vote not open for %s (status=%s), skipping close.", today, daily["status"] if daily else "no record")
+            logger.info("Vote not open for %s, skipping reminder.", today)
             return
 
-        # Đóng poll / keyboard
-        if daily.get("poll_id") and daily.get("poll_message_id"):
-            try:
-                await app.bot.stop_poll(
-                    chat_id=config.CHAT_ID,
-                    message_id=daily["poll_message_id"],
-                )
-            except Exception:
-                pass
-        elif daily.get("poll_message_id"):
-            try:
-                await app.bot.edit_message_reply_markup(
-                    chat_id=config.CHAT_ID,
-                    message_id=daily["poll_message_id"],
-                    reply_markup=None,
-                )
-            except Exception:
-                pass
-
-        await db.set_vote_closed(today)
-
         voters = await db.get_voters(today)
+        if voters:
+            text = f"⏰ Đã có *{len(voters)} người* đặt cơm. Ai chưa vote thì vote nhanh nhé!"
+        else:
+            text = "⏰ Chưa có ai đặt cơm hôm nay. Vote nhanh nhé!"
+
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
-            text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm hôm nay.",
+            text=text,
             parse_mode="Markdown",
         )
-        logger.info("✅ Vote closed for %s, %d voters", today, len(voters))
+        logger.info("✅ Vote reminder sent for %s, %d voters", today, len(voters))
     except Exception:
-        logger.exception("❌ close_vote failed for %s", today)
+        logger.exception("❌ vote_reminder failed for %s", today)
 
 
 async def _scheduled_announce_roles(app: Application) -> None:
-    """10:30 — Chọn và thông báo người lấy cơm + trả hộp."""
+    """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp."""
     from datetime import datetime
     today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     logger.info("⏰ Scheduler: announce_roles triggered for %s", today)
 
     try:
         daily = await db.get_daily_vote(today)
-        if not daily or daily["status"] != "closed":
-            logger.info("Vote not closed for %s, skipping announce.", today)
+        if not daily:
+            logger.info("No vote for %s, skipping announce.", today)
             return
 
         # Đã chọn người rồi thì skip
         if daily.get("picker_user_id"):
             logger.info("Already assigned for %s, skipping.", today)
+            return
+
+        # Đóng vote nếu đang mở
+        if daily["status"] == "open":
+            # Đóng poll / keyboard trên Telegram
+            if daily.get("poll_id") and daily.get("poll_message_id"):
+                try:
+                    await app.bot.stop_poll(
+                        chat_id=config.CHAT_ID,
+                        message_id=daily["poll_message_id"],
+                    )
+                except Exception:
+                    pass
+            elif daily.get("poll_message_id"):
+                try:
+                    await app.bot.edit_message_reply_markup(
+                        chat_id=config.CHAT_ID,
+                        message_id=daily["poll_message_id"],
+                        reply_markup=None,
+                    )
+                except Exception:
+                    pass
+            await db.set_vote_closed(today)
+            logger.info("Vote closed for %s at announce time.", today)
+
+        if daily["status"] not in ("open", "closed"):
+            logger.info("Vote status is %s for %s, skipping.", daily["status"], today)
             return
 
         voters = await db.get_voters(today)
@@ -227,9 +238,9 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         args=[app], id="open_vote", replace_existing=True, misfire_grace_time=300,
     )
     scheduler.add_job(
-        _scheduled_close_vote,
+        _scheduled_vote_reminder,
         trigger=CronTrigger(hour=close_h, minute=close_m, day_of_week="mon-fri", timezone=tz),
-        args=[app], id="close_vote", replace_existing=True, misfire_grace_time=300,
+        args=[app], id="vote_reminder", replace_existing=True, misfire_grace_time=300,
     )
     scheduler.add_job(
         _scheduled_announce_roles,
