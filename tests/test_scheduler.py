@@ -118,3 +118,40 @@ class TestScheduledOpenVote:
         assert len(app.bot.sent_polls) == 1
         assert app.bot.sent_polls[0]["question"] == "🍱 Ngày mai ăn gì?"
         assert app.bot.sent_polls[0]["options"] == ["Cơm gà", "Bún bò"]
+
+
+# ── _scheduled_morning ────────────────────────────────────────────────────────
+
+class TestScheduledMorning:
+    async def test_reminds_when_vote_already_open(self, db):
+        from scheduler import _scheduled_morning, _target_date
+        today = _target_date(0)
+        await db.create_daily_vote(today, 555, 45000, 20000)  # status='open'
+        app = FakeApp()
+        await _scheduled_morning(app)
+        # Gửi đúng 1 tin nhắc, không tạo poll mới
+        assert len(app.bot.sent_messages) == 1
+        assert "Vote nhanh" in app.bot.sent_messages[0]
+        assert app.bot.sent_polls == []
+
+    async def test_creates_vote_when_none_exists(self, db):
+        from scheduler import _scheduled_morning, _target_date
+        today = _target_date(0)
+        app = FakeApp()
+        await _scheduled_morning(app)
+        daily = await db.get_daily_vote(today)
+        assert daily is not None
+        assert daily["status"] == "open"
+        # Tạo vote cùng ngày → wording "hôm nay"
+        assert any("Đặt cơm hôm nay" in m for m in app.bot.sent_messages)
+
+    async def test_skips_when_vote_closed(self, db):
+        from scheduler import _scheduled_morning, _target_date
+        today = _target_date(0)
+        await db.create_daily_vote(today, 777, 45000, 20000)
+        await db.set_vote_closed(today)  # status='closed' (vd ngày /skip_today)
+        app = FakeApp()
+        await _scheduled_morning(app)
+        # status='closed' → không nhắc, không tạo
+        assert app.bot.sent_messages == []
+        assert app.bot.sent_polls == []

@@ -92,6 +92,35 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
         logger.exception("❌ open_vote failed for %s", target_str)
 
 
+async def _send_vote_reminder(app: Application, date: str) -> None:
+    """Gửi tin nhắc số người đã vote (vote vẫn mở)."""
+    voters = await db.get_voters(date)
+    if voters:
+        text = f"⏰ Đã có *{len(voters)} người* đặt cơm. Ai chưa vote thì vote nhanh nhé!"
+    else:
+        text = "⏰ Chưa có ai đặt cơm hôm nay. Vote nhanh nhé!"
+    await app.bot.send_message(chat_id=config.CHAT_ID, text=text, parse_mode="Markdown")
+    logger.info("✅ Vote reminder sent for %s, %d voters", date, len(voters))
+
+
+async def _scheduled_morning(app: Application) -> None:
+    """08:30 — vote đã tạo từ tối hôm trước thì nhắc số người vote;
+    chưa có thì tạo vote cho hôm nay (lưới an toàn khi job 19:00 lỡ)."""
+    today = _target_date(0)
+    logger.info("⏰ Scheduler: morning triggered for %s", today)
+
+    try:
+        daily = await db.get_daily_vote(today)
+        if daily and daily["status"] == "open":
+            await _send_vote_reminder(app, today)
+        elif daily and daily["status"] == "closed":
+            logger.info("Vote already closed for %s, skipping morning job.", today)
+        else:
+            await _scheduled_open_vote(app, day_offset=0)
+    except Exception:
+        logger.exception("❌ morning job failed for %s", today)
+
+
 async def _scheduled_vote_reminder(app: Application) -> None:
     """09:30 — Nhắc nhở số người đã vote, vote vẫn mở."""
     from datetime import datetime
