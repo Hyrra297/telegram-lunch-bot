@@ -121,7 +121,6 @@ async def _scheduled_morning(app: Application) -> None:
         logger.exception("❌ morning job failed for %s", today)
 
 
-
 async def _scheduled_announce_roles(app: Application) -> None:
     """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp."""
     from datetime import datetime
