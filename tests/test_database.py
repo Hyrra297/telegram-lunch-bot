@@ -77,6 +77,18 @@ async def test_close_daily_vote_sets_picker(db):
     assert user["last_picked_at"] == "2026-03-10"
 
 
+async def test_get_daily_vote_by_message_id(db):
+    await db.create_daily_vote("2026-03-10", 777, 35000, 20000)
+    vote = await db.get_daily_vote_by_message_id(777)
+    assert vote is not None
+    assert vote["date"] == "2026-03-10"
+
+
+async def test_get_daily_vote_by_message_id_missing(db):
+    result = await db.get_daily_vote_by_message_id(99999)
+    assert result is None
+
+
 # ── Vote entries ──────────────────────────────────────────────────────────────
 
 async def test_toggle_vote_in_and_out(db):

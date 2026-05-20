@@ -104,3 +104,58 @@ class TestCurrentMonth:
         assert len(parts) == 2
         assert len(parts[0]) == 4  # YYYY
         assert len(parts[1]) == 2  # MM
+
+
+# ── handlers/vote.py — handle_vote_callback ───────────────────────────────────
+
+class _FakeUser:
+    def __init__(self, user_id):
+        self.id = user_id
+
+
+class _FakeMessage:
+    def __init__(self, message_id):
+        self.message_id = message_id
+
+
+class FakeCallbackQuery:
+    def __init__(self, message_id, user_id, data):
+        self.message = _FakeMessage(message_id)
+        self.from_user = _FakeUser(user_id)
+        self.data = data
+        self.answers = []
+        self.edited_text = None
+
+    async def answer(self, text=None, show_alert=False):
+        self.answers.append(text)
+
+    async def edit_message_text(self, text=None, parse_mode=None, reply_markup=None):
+        self.edited_text = text
+
+
+class FakeUpdate:
+    def __init__(self, callback_query):
+        self.callback_query = callback_query
+
+
+class TestHandleVoteCallback:
+    async def test_vote_lands_on_message_date_not_today(self, db):
+        """Vote tạo cho ngày khác hôm nay: phiếu phải vào đúng ngày của tin nhắn."""
+        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN, _today
+        future = "2099-12-31"
+        assert future != _today()
+        await db.create_daily_vote(future, 5000, 45000, 20000)
+        await db.add_user(42, "Người Test", "tester")
+        query = FakeCallbackQuery(message_id=5000, user_id=42, data=CALLBACK_VOTE_IN)
+        await handle_vote_callback(FakeUpdate(query), None)
+        assert len(await db.get_voters(future)) == 1
+        assert len(await db.get_voters(_today())) == 0
+
+    async def test_edit_text_wording_future_date(self, db):
+        """Tin nhắn vote cho ngày tương lai → text dùng 'ngày mai'."""
+        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN
+        await db.create_daily_vote("2099-12-31", 5001, 45000, 20000)
+        await db.add_user(42, "Người Test", "tester")
+        query = FakeCallbackQuery(message_id=5001, user_id=42, data=CALLBACK_VOTE_IN)
+        await handle_vote_callback(FakeUpdate(query), None)
+        assert query.edited_text and "Đặt cơm ngày mai" in query.edited_text

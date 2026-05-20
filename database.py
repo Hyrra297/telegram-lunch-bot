@@ -191,6 +191,16 @@ async def get_daily_vote_by_poll_id(poll_id: str) -> Optional[dict]:
             return dict(row) if row else None
 
 
+async def get_daily_vote_by_message_id(message_id: int) -> Optional[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM daily_votes WHERE poll_message_id = ?", (message_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
 async def set_poll_id(date: str, poll_id: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE daily_votes SET poll_id = ? WHERE date = ?", (poll_id, date))

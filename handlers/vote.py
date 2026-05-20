@@ -233,12 +233,14 @@ async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
 
     user = query.from_user
-    today = _today()
 
-    daily = await db.get_daily_vote(today)
+    # Tra vote theo tin nhắn chứa nút — không dùng _today() vì vote có thể
+    # được tạo từ tối hôm trước (cho ngày mai).
+    daily = await db.get_daily_vote_by_message_id(query.message.message_id)
     if not daily or daily["status"] == "closed":
-        await query.answer("Vote hôm nay đã đóng rồi!", show_alert=True)
+        await query.answer("Vote này đã đóng rồi!", show_alert=True)
         return
+    date = daily["date"]
 
     member = await db.get_user(user.id)
     if not member or not member["active"]:
@@ -246,17 +248,18 @@ async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if query.data == CALLBACK_VOTE_IN:
-        voted_in = await db.toggle_vote(today, user.id)
+        voted_in = await db.toggle_vote(date, user.id)
         await query.answer("Đã đăng ký đặt cơm!" if voted_in else "Đã huỷ đặt cơm.")
     elif query.data == CALLBACK_VOTE_OUT:
-        await db.toggle_vote(today, user.id)
+        await db.toggle_vote(date, user.id)
         await query.answer("Đã bỏ phiếu (không đặt).")
 
-    voters = await db.get_voters(today)
+    voters = await db.get_voters(date)
     menu_description = daily.get("menu_description") or ""
+    day_label = "hôm nay" if date == _today() else "ngày mai"
     try:
         await query.edit_message_text(
-            text=_build_vote_text(voters, menu_description),
+            text=_build_vote_text(voters, menu_description, day_label=day_label),
             parse_mode="Markdown",
             reply_markup=_build_keyboard(),
         )
