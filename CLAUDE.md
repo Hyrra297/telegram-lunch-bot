@@ -44,7 +44,7 @@ Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00),
 - `bot.py` — entry point bot, đăng ký handlers + `set_my_commands`
 - `config.py` — đọc `.env`
 - `database.py` — toàn bộ SQL queries
-- `scheduler.py` — 3 jobs: open, close, announce_roles
+- `scheduler.py` — 4 jobs: open_vote_evening (19:00), morning (08:30), announce_roles (10:30), monthly_summary (14:00)
 - `handlers/vote.py` — open/close vote, poll answer, inline keyboard fallback
 - `handlers/admin.py` — quản lý thành viên, cài đặt, /reset_vote
 - `handlers/payment.py` — /dong_tien + admin confirm callback
@@ -113,7 +113,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Web và bot dùng chung SQLite — không conflict nhờ WAL mode
 - Admin check: `user_id in config.ADMIN_IDS`
 - `close_daily_vote()`: đóng + chọn picker/returner (dùng lúc 10:30)
-- `set_vote_closed()`: chỉ đóng, chưa chọn người (dùng lúc 10:00)
+- `set_vote_closed()`: chỉ đóng, chưa chọn người (dùng trong announce_roles lúc 10:30)
 - Web cần restart uvicorn sau khi sửa code Python
 
 ## Lưu ý khi deploy
