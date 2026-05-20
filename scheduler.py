@@ -108,6 +108,11 @@ async def _scheduled_announce_roles(app: Application) -> None:
             logger.info("No vote for %s, skipping announce.", today)
             return
 
+        # Ngày đã skip (status=closed + chưa từng có poll) → bỏ qua, không gửi gì
+        if daily["status"] == "closed" and not daily.get("poll_message_id"):
+            logger.info("Day %s was skipped (no poll), silent return.", today)
+            return
+
         # Đã chọn người rồi thì skip
         if daily.get("picker_user_id"):
             logger.info("Already assigned for %s, skipping.", today)

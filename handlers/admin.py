@@ -1,6 +1,6 @@
 from __future__ import annotations
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 import aiosqlite
@@ -146,6 +146,48 @@ async def skip_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 @_require_admin
+async def skip_week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Skip cả tuần làm việc tiếp theo (T2-T6).
+
+    /skip_week           → tuần sau (bắt đầu từ thứ 2 kế tiếp)
+    /skip_week this      → tuần hiện tại (các ngày T2-T6 từ hôm nay trở đi)
+    """
+    tz = pytz.timezone(config.TIMEZONE)
+    today = datetime.now(tz).date()
+    arg = (context.args[0].lower() if context.args else "next")
+
+    if arg == "this":
+        monday = today - timedelta(days=today.weekday())
+        start = max(monday, today)
+    else:
+        days_until_next_monday = (7 - today.weekday()) % 7 or 7
+        start = today + timedelta(days=days_until_next_monday)
+
+    week_monday = start - timedelta(days=start.weekday())
+    dates = [week_monday + timedelta(days=i) for i in range(5)]
+    dates = [d for d in dates if d >= start]
+
+    if not dates:
+        await update.message.reply_text("❌ Không có ngày nào để skip.")
+        return
+
+    async with aiosqlite.connect(db.DB_PATH) as db_conn:
+        for d in dates:
+            await db_conn.execute(
+                """INSERT INTO daily_votes (date, price, ship_fee, status)
+                   VALUES (?, ?, ?, 'closed')
+                   ON CONFLICT(date) DO UPDATE SET status = 'closed'""",
+                (d.strftime("%Y-%m-%d"), config.PRICE_PER_MEAL, config.SHIP_FEE),
+            )
+        await db_conn.commit()
+
+    date_list = "\n".join(f"  • {d.strftime('%a %d/%m')}" for d in dates)
+    await update.message.reply_text(
+        f"⏭️ Đã skip {len(dates)} ngày — tuần này/sau không đặt cơm:\n{date_list}"
+    )
+
+
+@_require_admin
 async def assign(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Phân công thủ công khi vote đã đóng nhưng chưa có picker/returner."""
     today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
@@ -201,5 +243,6 @@ def get_handlers():
         CommandHandler("rotation", show_rotation),
         CommandHandler("reset_vote", reset_vote),
         CommandHandler("skip_today", skip_today),
+        CommandHandler("skip_week", skip_week),
         CommandHandler("assign", assign),
     ]

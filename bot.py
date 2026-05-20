@@ -48,6 +48,8 @@ async def post_init(app: Application) -> None:
         BotCommand("set_time", "Đổi giờ mở/đóng vote"),
         BotCommand("rotation", "Xem thứ tự lượt lấy cơm và trả hộp"),
         BotCommand("reset_vote", "Xoá vote hôm nay để mở lại"),
+        BotCommand("skip_today", "Hôm nay không đặt cơm"),
+        BotCommand("skip_week", "Skip cả tuần sau (thêm 'this' để skip tuần này)"),
         BotCommand("assign", "Phân công lấy cơm/trả hộp thủ công"),
     ]
     for admin_id in config.ADMIN_IDS:
