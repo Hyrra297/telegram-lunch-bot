@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import pytz
+from datetime import datetime, timedelta
 from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -10,6 +11,27 @@ import config
 import database as db
 
 logger = logging.getLogger(__name__)
+
+
+def _target_date(day_offset: int = 0) -> str:
+    """Ngày đích dạng YYYY-MM-DD. day_offset=0 → hôm nay, 1 → ngày mai."""
+    tz = pytz.timezone(config.TIMEZONE)
+    return (datetime.now(tz) + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+
+
+def _open_vote_wording(day_offset: int) -> dict:
+    """Chữ hiển thị tuỳ vote tạo cho hôm nay hay cho ngày mai."""
+    if day_offset >= 1:
+        return {
+            "caption": "🍽️ Thực đơn ngày mai",
+            "poll_question": "🍱 Ngày mai ăn gì?",
+            "day_label": "ngày mai",
+        }
+    return {
+        "caption": "🍽️ Thực đơn hôm nay",
+        "poll_question": "🍱 Hôm nay ăn gì?",
+        "day_label": "hôm nay",
+    }
 
 
 async def _scheduled_open_vote(app: Application) -> None:
