@@ -27,8 +27,8 @@ def _build_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def _build_vote_text(voters: list[dict], menu_description: str = "") -> str:
-    header = "🍱 *Đặt cơm hôm nay*"
+def _build_vote_text(voters: list[dict], menu_description: str = "", day_label: str = "hôm nay") -> str:
+    header = f"🍱 *Đặt cơm {day_label}*"
     if menu_description:
         header += f"\n\n{menu_description}"
     if voters:

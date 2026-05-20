@@ -26,6 +26,16 @@ class TestBuildVoteText:
         assert "Bún bò" in text
         assert "Cơm gà" in text
 
+    def test_default_day_label_is_hom_nay(self):
+        from handlers.vote import _build_vote_text
+        text = _build_vote_text([])
+        assert "Đặt cơm hôm nay" in text
+
+    def test_day_label_ngay_mai(self):
+        from handlers.vote import _build_vote_text
+        text = _build_vote_text([], day_label="ngày mai")
+        assert "Đặt cơm ngày mai" in text
+
 
 class TestBuildKeyboard:
     """_build_keyboard() is the fallback inline keyboard (✅/❌).
