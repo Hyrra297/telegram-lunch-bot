@@ -34,14 +34,16 @@ def _open_vote_wording(day_offset: int) -> dict:
     }
 
 
-async def _scheduled_open_vote(app: Application) -> None:
-    today_str = __import__("datetime").datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
-    logger.info("⏰ Scheduler: open_vote triggered for %s", today_str)
+async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
+    """Tạo vote cho ngày đích. day_offset=0 → hôm nay, day_offset=1 → ngày mai."""
+    target_str = _target_date(day_offset)
+    wording = _open_vote_wording(day_offset)
+    logger.info("⏰ Scheduler: open_vote triggered for %s (offset=%d)", target_str, day_offset)
 
     try:
-        existing = await db.get_daily_vote(today_str)
+        existing = await db.get_daily_vote(target_str)
         if existing and existing["status"] in ("open", "closed"):
-            logger.info("Vote already %s for %s, skipping.", existing["status"], today_str)
+            logger.info("Vote already %s for %s, skipping.", existing["status"], target_str)
             return
 
         price_str = await db.get_setting("price") or str(config.PRICE_PER_MEAL)
@@ -59,35 +61,35 @@ async def _scheduled_open_vote(app: Application) -> None:
                     await app.bot.send_photo(
                         chat_id=config.CHAT_ID,
                         photo=f,
-                        caption="🍽️ Thực đơn hôm nay",
+                        caption=wording["caption"],
                     )
 
         from handlers.vote import _build_keyboard, _build_vote_text
-        dishes = await db.get_menu_items(today_str)
-        logger.info("Dishes for %s: %s", today_str, dishes)
+        dishes = await db.get_menu_items(target_str)
+        logger.info("Dishes for %s: %s", target_str, dishes)
 
         if dishes:
             poll_msg = await app.bot.send_poll(
                 chat_id=config.CHAT_ID,
-                question="🍱 Hôm nay ăn gì?",
+                question=wording["poll_question"],
                 options=dishes,
                 is_anonymous=False,
                 allows_multiple_answers=False,
             )
-            await db.create_daily_vote(today_str, poll_msg.message_id, price, ship_fee)
-            await db.set_poll_id(today_str, poll_msg.poll.id)
-            logger.info("✅ Poll sent for %s (msg_id=%s)", today_str, poll_msg.message_id)
+            await db.create_daily_vote(target_str, poll_msg.message_id, price, ship_fee)
+            await db.set_poll_id(target_str, poll_msg.poll.id)
+            logger.info("✅ Poll sent for %s (msg_id=%s)", target_str, poll_msg.message_id)
         else:
             msg = await app.bot.send_message(
                 chat_id=config.CHAT_ID,
-                text=_build_vote_text([]),
+                text=_build_vote_text([], day_label=wording["day_label"]),
                 parse_mode="Markdown",
                 reply_markup=_build_keyboard(),
             )
-            await db.create_daily_vote(today_str, msg.message_id, price, ship_fee)
-            logger.info("✅ Inline vote sent for %s (msg_id=%s)", today_str, msg.message_id)
+            await db.create_daily_vote(target_str, msg.message_id, price, ship_fee)
+            logger.info("✅ Inline vote sent for %s (msg_id=%s)", target_str, msg.message_id)
     except Exception:
-        logger.exception("❌ open_vote failed for %s", today_str)
+        logger.exception("❌ open_vote failed for %s", target_str)
 
 
 async def _scheduled_vote_reminder(app: Application) -> None:

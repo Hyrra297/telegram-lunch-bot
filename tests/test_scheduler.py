@@ -39,3 +39,72 @@ class TestOpenVoteWording:
         assert w["day_label"] == "ngày mai"
         assert w["caption"] == "🍽️ Thực đơn ngày mai"
         assert w["poll_question"] == "🍱 Ngày mai ăn gì?"
+
+
+# ── FakeBot dùng chung cho test job bodies ────────────────────────────────────
+
+class _FakeMsg:
+    def __init__(self, message_id, poll_id=None):
+        self.message_id = message_id
+        if poll_id is not None:
+            self.poll = type("_Poll", (), {"id": poll_id})()
+
+
+class FakeBot:
+    def __init__(self):
+        self.sent_messages = []   # list[str] — text các tin nhắn
+        self.sent_polls = []      # list[dict] — {question, options}
+        self.sent_photos = []     # list[str] — caption các ảnh
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.sent_messages.append(text)
+        return _FakeMsg(1001)
+
+    async def send_poll(self, chat_id, question, options, **kwargs):
+        self.sent_polls.append({"question": question, "options": options})
+        return _FakeMsg(2002, poll_id="fake-poll-id")
+
+    async def send_photo(self, chat_id, photo, caption=None, **kwargs):
+        self.sent_photos.append(caption)
+
+
+class FakeApp:
+    def __init__(self):
+        self.bot = FakeBot()
+
+
+# ── _scheduled_open_vote ──────────────────────────────────────────────────────
+
+class TestScheduledOpenVote:
+    async def test_offset_one_creates_vote_for_tomorrow(self, db):
+        from scheduler import _scheduled_open_vote, _target_date
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=1)
+
+        tomorrow = _target_date(1)
+        daily = await db.get_daily_vote(tomorrow)
+        assert daily is not None
+        assert daily["status"] == "open"
+
+    async def test_offset_one_uses_ngay_mai_wording(self, db):
+        from scheduler import _scheduled_open_vote
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=1)
+        # Không có món ăn → fallback inline keyboard, text dùng "ngày mai"
+        assert any("Đặt cơm ngày mai" in m for m in app.bot.sent_messages)
+
+    async def test_offset_zero_uses_hom_nay_wording(self, db):
+        from scheduler import _scheduled_open_vote
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=0)
+        assert any("Đặt cơm hôm nay" in m for m in app.bot.sent_messages)
+
+    async def test_skips_when_vote_already_open(self, db):
+        from scheduler import _scheduled_open_vote, _target_date
+        today = _target_date(0)
+        await db.create_daily_vote(today, 999, 45000, 20000)  # status='open'
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=0)
+        # Đã có vote → không gửi gì thêm
+        assert app.bot.sent_messages == []
+        assert app.bot.sent_polls == []
