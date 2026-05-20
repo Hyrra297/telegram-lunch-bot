@@ -21,9 +21,9 @@ async def post_init(app: Application) -> None:
     scheduler = build_scheduler(app)
     scheduler.start()
     logger.info(
-        "Scheduler started. Open: %s | Close: %s | Announce: %s | TZ: %s",
+        "Scheduler started. Morning: %s | Evening: %s | Announce: %s | TZ: %s",
         config.VOTE_OPEN_TIME,
-        config.VOTE_CLOSE_TIME,
+        config.EVENING_OPEN_TIME,
         config.ANNOUNCE_TIME,
         config.TIMEZONE,
     )
