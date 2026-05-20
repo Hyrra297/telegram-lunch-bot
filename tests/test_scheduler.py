@@ -120,16 +120,6 @@ class TestScheduledOpenVote:
         assert app.bot.sent_polls[0]["options"] == ["Cơm gà", "Bún bò"]
 
 
-# ── config ────────────────────────────────────────────────────────────────────
-
-class TestConfig:
-    def test_evening_open_time_default(self):
-        import importlib
-        import config as config_mod
-        importlib.reload(config_mod)
-        assert config_mod.EVENING_OPEN_TIME == "19:00"
-
-
 # ── _scheduled_morning ────────────────────────────────────────────────────────
 
 class TestScheduledMorning:
@@ -177,3 +167,13 @@ class TestScheduledMorning:
         assert daily["status"] == "open"
         # row 'none' có sẵn món → đi nhánh poll
         assert len(app.bot.sent_polls) == 1
+
+
+# ── config ────────────────────────────────────────────────────────────────────
+
+class TestConfig:
+    def test_evening_open_time_default(self):
+        import importlib
+        import config as config_mod
+        importlib.reload(config_mod)
+        assert config_mod.EVENING_OPEN_TIME == "19:00"
