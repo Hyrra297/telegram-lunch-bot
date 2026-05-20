@@ -177,3 +177,39 @@ class TestConfig:
         import config as config_mod
         importlib.reload(config_mod)
         assert config_mod.EVENING_OPEN_TIME == "19:00"
+
+
+# ── build_scheduler ───────────────────────────────────────────────────────────
+
+class TestBuildScheduler:
+    def test_job_ids(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
+        ids = {j.id for j in sched.get_jobs()}
+        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary"}
+        assert "vote_reminder" not in ids
+        assert "open_vote" not in ids
+
+    def test_evening_job_trigger(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        trig = str(jobs["open_vote_evening"].trigger)
+        assert "hour='19'" in trig
+        assert "day_of_week='mon-thu'" in trig
+
+    def test_morning_job_trigger(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        trig = str(jobs["morning"].trigger)
+        assert "hour='8'" in trig
+        assert "minute='30'" in trig
+        assert "day_of_week='mon-fri'" in trig
+
+    def test_evening_job_passes_day_offset_one(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        # args = [app, day_offset]; job tối phải truyền day_offset=1
+        assert jobs["open_vote_evening"].args[1] == 1

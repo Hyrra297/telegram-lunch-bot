@@ -8,7 +8,6 @@ BOT_TOKEN: str = os.environ["BOT_TOKEN"]
 CHAT_ID: int = int(os.environ["CHAT_ID"])
 ADMIN_IDS: set = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 VOTE_OPEN_TIME: str = os.getenv("VOTE_OPEN_TIME", "08:30")    # HH:MM — job sáng (thứ 2 - thứ 6)
-VOTE_CLOSE_TIME: str = os.getenv("VOTE_CLOSE_TIME", "09:30")  # HH:MM — (deprecated, xoá ở Task 6)
 EVENING_OPEN_TIME: str = os.getenv("EVENING_OPEN_TIME", "19:00")  # HH:MM — tạo vote cho ngày mai (T2-T5)
 ANNOUNCE_TIME: str = os.getenv("ANNOUNCE_TIME", "10:30")      # HH:MM — thông báo phân công
 SUMMARY_TIME: str = os.getenv("SUMMARY_TIME", "12:00")         # HH:MM — tổng kết chi phí ngày

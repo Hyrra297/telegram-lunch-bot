@@ -121,33 +121,6 @@ async def _scheduled_morning(app: Application) -> None:
         logger.exception("❌ morning job failed for %s", today)
 
 
-async def _scheduled_vote_reminder(app: Application) -> None:
-    """09:30 — Nhắc nhở số người đã vote, vote vẫn mở."""
-    from datetime import datetime
-    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
-    logger.info("⏰ Scheduler: vote_reminder triggered for %s", today)
-
-    try:
-        daily = await db.get_daily_vote(today)
-        if not daily or daily["status"] != "open":
-            logger.info("Vote not open for %s, skipping reminder.", today)
-            return
-
-        voters = await db.get_voters(today)
-        if voters:
-            text = f"⏰ Đã có *{len(voters)} người* đặt cơm. Ai chưa vote thì vote nhanh nhé!"
-        else:
-            text = "⏰ Chưa có ai đặt cơm hôm nay. Vote nhanh nhé!"
-
-        await app.bot.send_message(
-            chat_id=config.CHAT_ID,
-            text=text,
-            parse_mode="Markdown",
-        )
-        logger.info("✅ Vote reminder sent for %s, %d voters", today, len(voters))
-    except Exception:
-        logger.exception("❌ vote_reminder failed for %s", today)
-
 
 async def _scheduled_announce_roles(app: Application) -> None:
     """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp."""
@@ -285,26 +258,30 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         h, m = map(int, t.split(":"))
         return h, m
 
-    open_h, open_m = _hm(config.VOTE_OPEN_TIME)       # 08:30
-    close_h, close_m = _hm(config.VOTE_CLOSE_TIME)   # 09:30
-    announce_h, announce_m = _hm(config.ANNOUNCE_TIME)  # 10:30
+    morning_h, morning_m = _hm(config.VOTE_OPEN_TIME)      # 08:30
+    evening_h, evening_m = _hm(config.EVENING_OPEN_TIME)   # 19:00
+    announce_h, announce_m = _hm(config.ANNOUNCE_TIME)     # 10:30
 
     scheduler = AsyncIOScheduler(timezone=tz)
+    # 19:00 T2-T5: tạo vote cho ngày mai (T3-T6)
     scheduler.add_job(
         _scheduled_open_vote,
-        trigger=CronTrigger(hour=open_h, minute=open_m, day_of_week="mon-fri", timezone=tz),
-        args=[app], id="open_vote", replace_existing=True, misfire_grace_time=300,
+        trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="mon-thu", timezone=tz),
+        args=[app, 1], id="open_vote_evening", replace_existing=True, misfire_grace_time=300,
     )
+    # 08:30 T2-T6: có vote → nhắc; chưa có → tạo vote (lưới an toàn)
     scheduler.add_job(
-        _scheduled_vote_reminder,
-        trigger=CronTrigger(hour=close_h, minute=close_m, day_of_week="mon-fri", timezone=tz),
-        args=[app], id="vote_reminder", replace_existing=True, misfire_grace_time=300,
+        _scheduled_morning,
+        trigger=CronTrigger(hour=morning_h, minute=morning_m, day_of_week="mon-fri", timezone=tz),
+        args=[app], id="morning", replace_existing=True, misfire_grace_time=300,
     )
+    # 10:30 T2-T6: đóng vote + chốt sổ
     scheduler.add_job(
         _scheduled_announce_roles,
         trigger=CronTrigger(hour=announce_h, minute=announce_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="announce_roles", replace_existing=True, misfire_grace_time=300,
     )
+    # 14:00 hằng ngày: tổng kết tháng (tự thoát nếu không phải ngày cuối tháng)
     scheduler.add_job(
         _scheduled_monthly_summary,
         trigger=CronTrigger(hour=14, minute=0, day_of_week="mon-sun", timezone=tz),
