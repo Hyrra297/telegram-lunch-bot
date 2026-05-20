@@ -155,3 +155,15 @@ class TestScheduledMorning:
         # status='closed' → không nhắc, không tạo
         assert app.bot.sent_messages == []
         assert app.bot.sent_polls == []
+
+    async def test_creates_vote_when_status_is_none(self, db):
+        from scheduler import _scheduled_morning, _target_date
+        today = _target_date(0)
+        await db.save_menu_items(today, ["Cơm tấm"])  # tạo row placeholder status='none'
+        app = FakeApp()
+        await _scheduled_morning(app)
+        daily = await db.get_daily_vote(today)
+        assert daily is not None
+        assert daily["status"] == "open"
+        # row 'none' có sẵn món → đi nhánh poll
+        assert len(app.bot.sent_polls) == 1
