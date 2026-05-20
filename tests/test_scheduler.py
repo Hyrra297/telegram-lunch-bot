@@ -108,3 +108,13 @@ class TestScheduledOpenVote:
         # Đã có vote → không gửi gì thêm
         assert app.bot.sent_messages == []
         assert app.bot.sent_polls == []
+
+    async def test_offset_one_poll_uses_ngay_mai_question(self, db):
+        from scheduler import _scheduled_open_vote, _target_date
+        tomorrow = _target_date(1)
+        await db.save_menu_items(tomorrow, ["Cơm gà", "Bún bò"])
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=1)
+        assert len(app.bot.sent_polls) == 1
+        assert app.bot.sent_polls[0]["question"] == "🍱 Ngày mai ăn gì?"
+        assert app.bot.sent_polls[0]["options"] == ["Cơm gà", "Bún bò"]
