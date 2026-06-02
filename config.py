@@ -10,6 +10,7 @@ ADMIN_IDS: set = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") 
 VOTE_OPEN_TIME: str = os.getenv("VOTE_OPEN_TIME", "08:30")    # HH:MM — job sáng (thứ 2 - thứ 6)
 EVENING_OPEN_TIME: str = os.getenv("EVENING_OPEN_TIME", "19:00")  # HH:MM — tạo vote cho ngày mai (T2-T5)
 ANNOUNCE_TIME: str = os.getenv("ANNOUNCE_TIME", "10:30")      # HH:MM — thông báo phân công
+ADMIN_DIGEST_TIME: str = os.getenv("ADMIN_DIGEST_TIME", "20:00")  # HH:MM — digest vote gửi riêng admin (tối T2-T5)
 SUMMARY_TIME: str = os.getenv("SUMMARY_TIME", "12:00")         # HH:MM — tổng kết chi phí ngày
 PRICE_PER_MEAL: int = int(os.getenv("PRICE_PER_MEAL", "45000"))
 SHIP_FEE: int = int(os.getenv("SHIP_FEE", "20000"))

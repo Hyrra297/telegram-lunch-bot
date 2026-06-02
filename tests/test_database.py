@@ -253,3 +253,12 @@ async def test_set_setting_overwrite(db):
     await db.set_setting("price", "40000")
     val = await db.get_setting("price")
     assert val == "40000"
+
+
+async def test_is_voter(db):
+    await db.add_user(1, "A", "a")
+    assert await db.is_voter("2026-06-03", 1) is False
+    await db.toggle_vote("2026-06-03", 1)
+    assert await db.is_voter("2026-06-03", 1) is True
+    await db.toggle_vote("2026-06-03", 1)  # bỏ vote
+    assert await db.is_voter("2026-06-03", 1) is False

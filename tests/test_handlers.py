@@ -66,12 +66,13 @@ class TestHelpText:
 
     def test_user_commands_present(self):
         from handlers.help import USER_COMMANDS
-        assert "/summary" in USER_COMMANDS
+        assert "/tien" in USER_COMMANDS
         assert "dong" in USER_COMMANDS   # /dong\_tien (escaped)
         assert "/help" in USER_COMMANDS
 
     def test_admin_commands_present(self):
         from handlers.help import ADMIN_COMMANDS
+        assert "summary" in ADMIN_COMMANDS  # /summary là lệnh admin
         assert "open" in ADMIN_COMMANDS   # /open\_vote
         assert "close" in ADMIN_COMMANDS  # /close\_vote
         assert "add" in ADMIN_COMMANDS    # /add\_member
@@ -81,6 +82,7 @@ class TestHelpText:
         from handlers.help import USER_COMMANDS, ADMIN_COMMANDS
         # Admin block should not bleed into user block
         assert "open" not in USER_COMMANDS
+        assert "summary" not in USER_COMMANDS  # /summary chỉ ở khối admin
 
 
 # ── handlers/payment.py ───────────────────────────────────────────────────────
@@ -104,6 +106,24 @@ class TestCurrentMonth:
         assert len(parts) == 2
         assert len(parts[0]) == 4  # YYYY
         assert len(parts[1]) == 2  # MM
+
+
+class TestPreviousMonth:
+    def test_returns_month_before_current(self):
+        from datetime import datetime
+        import pytz
+        from handlers.payment import _current_month, _previous_month
+
+        now = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))
+        prev = _previous_month()
+
+        if now.month == 1:
+            assert prev == f"{now.year - 1}-12"
+        else:
+            assert prev == f"{now.year}-{now.month - 1:02d}"
+
+        # Luôn khác tháng hiện tại
+        assert prev != _current_month()
 
 
 # ── handlers/vote.py — handle_vote_callback ───────────────────────────────────
@@ -159,3 +179,57 @@ class TestHandleVoteCallback:
         query = FakeCallbackQuery(message_id=5001, user_id=42, data=CALLBACK_VOTE_IN)
         await handle_vote_callback(FakeUpdate(query), None)
         assert query.edited_text and "Đặt cơm ngày mai" in query.edited_text
+
+
+class _FakeBot:
+    def __init__(self):
+        self.sent = []  # list[(chat_id, text)]
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.sent.append((chat_id, text))
+
+
+class _FakeContext:
+    def __init__(self, bot):
+        self.bot = bot
+
+
+class TestVoteNotifiesAdmin:
+    async def test_notifies_admin_on_new_voter_today(self, db, monkeypatch):
+        """Người mới đặt vào đúng ngày hôm nay → bot nhắn riêng admin."""
+        import config
+        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN, _today
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        today = _today()
+        await db.create_daily_vote(today, 6000, 45000, 20000)
+        await db.add_user(42, "Người Test", "tester")
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=6000, user_id=42, data=CALLBACK_VOTE_IN)
+        await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))
+        assert bot.sent == [(1001, "✅ Người Test vừa đặt cơm — tổng 1 người.")]
+
+    async def test_no_notify_when_leaving(self, db, monkeypatch):
+        """Bỏ vote (toggle off) → KHÔNG nhắn admin."""
+        import config
+        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN, _today
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        today = _today()
+        await db.create_daily_vote(today, 6001, 45000, 20000)
+        await db.add_user(42, "Người Test", "tester")
+        await db.toggle_vote(today, 42)  # đã vote sẵn
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=6001, user_id=42, data=CALLBACK_VOTE_IN)
+        await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))  # tap → rời
+        assert bot.sent == []
+
+    async def test_no_notify_when_not_today(self, db, monkeypatch):
+        """Vote cho ngày mai (chưa tới ngày ăn) → KHÔNG real-time."""
+        import config
+        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        await db.create_daily_vote("2099-12-31", 6002, 45000, 20000)
+        await db.add_user(42, "Người Test", "tester")
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=6002, user_id=42, data=CALLBACK_VOTE_IN)
+        await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))
+        assert bot.sent == []

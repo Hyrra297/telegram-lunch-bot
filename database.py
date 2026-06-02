@@ -291,6 +291,15 @@ async def toggle_vote(date: str, user_id: int) -> bool:
             return True
 
 
+async def is_voter(date: str, user_id: int) -> bool:
+    """True nếu user đã có vote (bản ghi trong vote_entries) cho ngày này."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM vote_entries WHERE date = ? AND user_id = ?", (date, user_id)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+
 async def get_voters(date: str) -> list:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
@@ -28,6 +28,13 @@ def _current_month(tz: str = config.TIMEZONE) -> str:
     return datetime.now(pytz.timezone(tz)).strftime("%Y-%m")
 
 
+def _previous_month(tz: str = config.TIMEZONE) -> str:
+    """Tháng dương lịch liền trước — đóng tiền là trả cho tháng đã ăn xong."""
+    now = datetime.now(pytz.timezone(tz))
+    last_day_prev = now.replace(day=1) - timedelta(days=1)
+    return last_day_prev.strftime("%Y-%m")
+
+
 def _month_label(year_month: str) -> str:
     year, m = year_month.split("-")
     return f"tháng {int(m)}/{year}"
@@ -35,7 +42,7 @@ def _month_label(year_month: str) -> str:
 
 async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    year_month = _current_month()
+    year_month = _previous_month()
     paid_ids = await db.get_paid_user_ids(year_month)
     is_private = update.effective_chat.type == "private"
 

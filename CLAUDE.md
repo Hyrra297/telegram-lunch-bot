@@ -30,21 +30,26 @@ python bot.py
 ## Lịch tự động (scheduler)
 | Giờ | Ngày | Hành động |
 |---|---|---|
-| 19:00 | T2–T5 | Tạo vote cho ngày hôm sau (T3–T6), wording "ngày mai" |
-| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn) |
+| 19:00 | CN–T5 | Tạo vote cho ngày hôm sau (T2–T6), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin** |
+| 20:00 | CN–T5 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai |
+| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh) |
 | 10:30 | T2–T6 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp |
-| 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng |
+| 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
 
-Vote T3→T6 tạo từ 19:00 tối hôm trước; vote T2 tạo sáng 08:30. Job 08:30 vừa
-là lưới an toàn (tạo bù nếu job tối lỡ) vừa gửi tin nhắc nếu vote đã có.
+Mọi ngày T2–T6 đều tạo vote từ 19:00 tối hôm trước (CN tạo vote cho T2). Job 08:30
+là lưới an toàn (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và gửi tin nhắc nếu vote đã có.
+Ngoài ra: khi có **người mới** đặt vào đúng ngày ăn, bot nhắn riêng admin real-time
+(không vào nhóm). Xem `admin_notify.py`.
 
-Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00), `ANNOUNCE_TIME` (10:30)
+Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (20:00)
 
 ## Cấu trúc file quan trọng
 - `bot.py` — entry point bot, đăng ký handlers + `set_my_commands`
 - `config.py` — đọc `.env`
 - `database.py` — toàn bộ SQL queries
-- `scheduler.py` — 4 jobs: open_vote_evening (19:00), morning (08:30), announce_roles (10:30), monthly_summary (14:00)
+- `scheduler.py` — 5 jobs: open_vote_evening (19:00), admin_digest (20:00), morning (08:30), announce_roles (10:30), monthly_summary (14:00)
+- `admin_notify.py` — thông báo vote riêng cho admin (digest + real-time), gửi vào chat với bot
+- `image_summary.py` — render bảng tổng kết tiền cơm thành ảnh PNG (Pillow + font DejaVuSans)
 - `handlers/vote.py` — open/close vote, poll answer, inline keyboard fallback
 - `handlers/admin.py` — quản lý thành viên, cài đặt, /reset_vote
 - `handlers/payment.py` — /dong_tien + admin confirm callback

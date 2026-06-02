@@ -17,7 +17,7 @@ async def _auto_delete(message, delay=AUTO_DELETE_SECONDS):
 
 USER_COMMANDS = """
 *📋 Lệnh dành cho mọi người:*
-/tien — Xem tiền cơm của bạn tháng này
+/tien — Xem tiền cơm của bạn tháng trước (hoặc /tien MM-YYYY)
 /dong\\_tien — Báo đã đóng tiền tháng này
 /qr — Xem mã QR chuyển tiền
 /help — Xem danh sách lệnh
@@ -26,7 +26,7 @@ USER_COMMANDS = """
 ADMIN_COMMANDS = """
 
 *🔧 Lệnh dành cho admin:*
-/summary — Xem tổng kết đặt cơm tháng này
+/summary — Xem tổng kết đặt cơm tháng trước (hoặc /summary MM-YYYY)
 /open\\_vote — Mở vote đặt cơm hôm nay
 /close\\_vote — Đóng vote, chốt đơn cơm hôm nay
 /add\\_member — Thêm thành viên (reply vào tin nhắn của họ)

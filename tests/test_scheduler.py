@@ -78,23 +78,26 @@ class FakeApp:
 class TestScheduledOpenVote:
     async def test_offset_one_creates_vote_for_tomorrow(self, db):
         from scheduler import _scheduled_open_vote, _target_date
+        tomorrow = _target_date(1)
+        await db.set_menu_image(tomorrow, "menu.jpg")
         app = FakeApp()
         await _scheduled_open_vote(app, day_offset=1)
 
-        tomorrow = _target_date(1)
         daily = await db.get_daily_vote(tomorrow)
         assert daily is not None
         assert daily["status"] == "open"
 
     async def test_offset_one_uses_ngay_mai_wording(self, db):
-        from scheduler import _scheduled_open_vote
+        from scheduler import _scheduled_open_vote, _target_date
+        await db.set_menu_image(_target_date(1), "menu.jpg")
         app = FakeApp()
         await _scheduled_open_vote(app, day_offset=1)
         # Không có món ăn → fallback inline keyboard, text dùng "ngày mai"
         assert any("Đặt cơm ngày mai" in m for m in app.bot.sent_messages)
 
     async def test_offset_zero_uses_hom_nay_wording(self, db):
-        from scheduler import _scheduled_open_vote
+        from scheduler import _scheduled_open_vote, _target_date
+        await db.set_menu_image(_target_date(0), "menu.jpg")
         app = FakeApp()
         await _scheduled_open_vote(app, day_offset=0)
         assert any("Đặt cơm hôm nay" in m for m in app.bot.sent_messages)
@@ -112,12 +115,23 @@ class TestScheduledOpenVote:
     async def test_offset_one_poll_uses_ngay_mai_question(self, db):
         from scheduler import _scheduled_open_vote, _target_date
         tomorrow = _target_date(1)
+        await db.set_menu_image(tomorrow, "menu.jpg")
         await db.save_menu_items(tomorrow, ["Cơm gà", "Bún bò"])
         app = FakeApp()
         await _scheduled_open_vote(app, day_offset=1)
         assert len(app.bot.sent_polls) == 1
         assert app.bot.sent_polls[0]["question"] == "🍱 Ngày mai ăn gì?"
         assert app.bot.sent_polls[0]["options"] == ["Cơm gà", "Bún bò"]
+
+    async def test_no_menu_image_skips_and_notifies(self, db):
+        """Không có ảnh thực đơn → KHÔNG tạo vote, báo riêng admin."""
+        from scheduler import _scheduled_open_vote, _target_date
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=1)
+        tomorrow = _target_date(1)
+        assert await db.get_daily_vote(tomorrow) is None
+        assert app.bot.sent_polls == []
+        assert any("Chưa có ảnh thực đơn" in m for m in app.bot.sent_messages)
 
 
 # ── _scheduled_morning ────────────────────────────────────────────────────────
@@ -137,6 +151,7 @@ class TestScheduledMorning:
     async def test_creates_vote_when_none_exists(self, db):
         from scheduler import _scheduled_morning, _target_date
         today = _target_date(0)
+        await db.set_menu_image(today, "menu.jpg")
         app = FakeApp()
         await _scheduled_morning(app)
         daily = await db.get_daily_vote(today)
@@ -144,6 +159,15 @@ class TestScheduledMorning:
         assert daily["status"] == "open"
         # Tạo vote cùng ngày → wording "hôm nay"
         assert any("Đặt cơm hôm nay" in m for m in app.bot.sent_messages)
+
+    async def test_morning_no_image_notifies_no_vote(self, db):
+        """08:30 không có ảnh → không tạo vote, báo riêng admin."""
+        from scheduler import _scheduled_morning, _target_date
+        today = _target_date(0)
+        app = FakeApp()
+        await _scheduled_morning(app)
+        assert await db.get_daily_vote(today) is None
+        assert any("Chưa có ảnh thực đơn" in m for m in app.bot.sent_messages)
 
     async def test_skips_when_vote_closed(self, db):
         from scheduler import _scheduled_morning, _target_date
@@ -160,6 +184,7 @@ class TestScheduledMorning:
         from scheduler import _scheduled_morning, _target_date
         today = _target_date(0)
         await db.save_menu_items(today, ["Cơm tấm"])  # tạo row placeholder status='none'
+        await db.set_menu_image(today, "menu.jpg")
         app = FakeApp()
         await _scheduled_morning(app)
         daily = await db.get_daily_vote(today)
@@ -186,7 +211,7 @@ class TestBuildScheduler:
         from scheduler import build_scheduler
         sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
         ids = {j.id for j in sched.get_jobs()}
-        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary"}
+        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest"}
         assert "vote_reminder" not in ids
         assert "open_vote" not in ids
 
@@ -196,7 +221,7 @@ class TestBuildScheduler:
         jobs = {j.id: j for j in sched.get_jobs()}
         trig = str(jobs["open_vote_evening"].trigger)
         assert "hour='19'" in trig
-        assert "day_of_week='mon-thu'" in trig
+        assert "day_of_week='sun,mon,tue,wed,thu'" in trig
 
     def test_morning_job_trigger(self):
         from scheduler import build_scheduler

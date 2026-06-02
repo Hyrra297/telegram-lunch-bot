@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, Pol
 import anthropic
 import config
 import database as db
+from admin_notify import notify_new_voter
 
 CALLBACK_VOTE_IN = "vote:in"
 CALLBACK_VOTE_OUT = "vote:out"
@@ -156,11 +157,17 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Tự động thêm user vào bảng users nếu chưa có
         user = answer.user
         full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username or str(user_id)
+        was_voter = await db.is_voter(date, user_id)
         await db.ensure_user(user_id, user.username, full_name)
 
         idx = option_ids[0]
         dish = dishes[idx] if idx < len(dishes) else dishes[0]
         await db.vote_for_dish(date, user_id, dish)
+
+        # Báo riêng admin khi có người MỚI đặt, chỉ vào đúng ngày ăn
+        if not was_voter and date == _today():
+            voters = await db.get_voters(date)
+            await notify_new_voter(context.bot, full_name, len(voters), exclude_user_id=user_id)
 
 
 async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -247,14 +254,21 @@ async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("Bạn chưa được thêm vào danh sách đặt cơm.", show_alert=True)
         return
 
+    joined = False
     if query.data == CALLBACK_VOTE_IN:
         voted_in = await db.toggle_vote(date, user.id)
+        joined = voted_in
         await query.answer("Đã đăng ký đặt cơm!" if voted_in else "Đã huỷ đặt cơm.")
     elif query.data == CALLBACK_VOTE_OUT:
         await db.toggle_vote(date, user.id)
         await query.answer("Đã bỏ phiếu (không đặt).")
 
     voters = await db.get_voters(date)
+
+    # Báo riêng admin khi có người MỚI đặt, chỉ vào đúng ngày ăn
+    if joined and date == _today():
+        await notify_new_voter(context.bot, member["full_name"], len(voters), exclude_user_id=user.id)
+
     menu_description = daily.get("menu_description") or ""
     day_label = "hôm nay" if date == _today() else "ngày mai"
     try:

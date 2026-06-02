@@ -3,12 +3,14 @@ import asyncio
 import logging
 import re
 import pytz
-from datetime import datetime
+from io import BytesIO
+from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 
 import config
 import database as db
+from image_summary import render_summary_image
 
 logger = logging.getLogger(__name__)
 
@@ -29,72 +31,61 @@ def _current_month(tz: str = config.TIMEZONE) -> str:
     return datetime.now(pytz.timezone(tz)).strftime("%Y-%m")
 
 
+def _previous_month(tz: str = config.TIMEZONE) -> str:
+    """Tháng dương lịch liền trước (xử lý đúng năm, vd tháng 1 → tháng 12 năm trước)."""
+    now = datetime.now(pytz.timezone(tz))
+    last_day_prev = now.replace(day=1) - timedelta(days=1)
+    return last_day_prev.strftime("%Y-%m")
+
+
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id not in config.ADMIN_IDS:
         return
 
     if context.args:
-        year_month = context.args[0]
-        if not re.match(r"^\d{4}-\d{2}$", year_month):
+        m = re.match(r"^(\d{2})-(\d{4})$", context.args[0])
+        if not m or not (1 <= int(m.group(1)) <= 12):
             await update.message.reply_text(
-                "Định dạng không đúng. Dùng: /summary YYYY-MM\nVí dụ: /summary 2026-03"
+                "Định dạng không đúng. Dùng: /summary MM-YYYY\nVí dụ: /summary 03-2026"
             )
             return
+        year_month = f"{m.group(2)}-{m.group(1)}"
     else:
-        year_month = _current_month()
+        year_month = _previous_month()
 
     rows = await db.get_monthly_summary(year_month)
 
     year, month = year_month.split("-")
-    header = f"📊 *Tổng kết tháng {int(month)}/{year}*\n{'─' * 28}"
 
     if not rows:
         await update.message.reply_text(
-            f"{header}\n\nKhông có dữ liệu cho tháng này.",
-            parse_mode="Markdown",
+            f"📊 Tổng kết tháng {int(month)}/{year}\n\nKhông có dữ liệu cho tháng này.",
         )
         return
 
     # Sắp xếp theo tổng tiền giảm dần
     rows.sort(key=lambda r: r["total"], reverse=True)
-
     paid_ids = await db.get_paid_user_ids(year_month)
 
-    lines = []
-    max_name_len = max(len(r["full_name"]) for r in rows)
-    name_header = "Tên".ljust(max_name_len)
-    header_line = f" #  {name_header}  Suất      Tiền     TT"
-    separator = "─" * len(header_line)
-    lines.append(header_line)
-    lines.append(separator)
-    for i, r in enumerate(rows, 1):
-        name = r["full_name"].ljust(max_name_len)
-        count = r["meal_count"]
-        total = f"{r['total']:>10,}đ"
-        status = "✅" if r.get("user_id") in paid_ids else "❌"
-        lines.append(f"{i:>2}. {name}  {count:>2}    {total}  {status}")
-
-    table = "\n".join(lines)
-    text = f"{header}\n\n```\n{table}\n```"
-
-    reply = await update.message.reply_text(text, parse_mode="Markdown")
-
-    # Xóa reply bot trong nhóm sau 10s, giữ lệnh user
-    if update.effective_chat.type != "private":
-        asyncio.create_task(_auto_delete(reply))
+    image = render_summary_image(rows, paid_ids, year_month)
+    await update.message.reply_photo(
+        photo=BytesIO(image),
+        caption=f"📊 Tổng kết tháng {int(month)}/{year}",
+    )
 
 
 async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if context.args:
-        year_month = context.args[0]
-        if not re.match(r"^\d{4}-\d{2}$", year_month):
+        m = re.match(r"^(\d{2})-(\d{4})$", context.args[0])
+        if not m or not (1 <= int(m.group(1)) <= 12):
             await update.message.reply_text(
-                "Định dạng không đúng. Dùng: /tien YYYY-MM\nVí dụ: /tien 2026-03"
+                "Định dạng không đúng. Dùng: /tien MM-YYYY\nVí dụ: /tien 03-2026"
             )
             return
+        year_month = f"{m.group(2)}-{m.group(1)}"
     else:
-        year_month = _current_month()
+        year_month = _previous_month()
 
     rows = await db.get_monthly_summary(year_month)
 

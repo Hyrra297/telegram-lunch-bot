@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import pytz
+from io import BytesIO
 from datetime import datetime, timedelta
 from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -9,6 +10,8 @@ from telegram.ext import Application
 
 import config
 import database as db
+from image_summary import render_summary_image
+from admin_notify import send_vote_digest, notify_admins
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +54,18 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
         ship_fee_str = await db.get_setting("ship_fee") or str(config.SHIP_FEE)
         ship_fee = int(ship_fee_str)
 
-        # Send menu photo if available
+        # Bắt buộc có ảnh thực đơn mới tạo vote — thiếu thì báo riêng admin
         menu_image = existing["menu_image"] if existing else None
+        if not menu_image:
+            await notify_admins(
+                app.bot,
+                f"⚠️ Chưa có ảnh thực đơn cho {wording['day_label']} ({target_str}) — "
+                f"bot chưa tạo vote. Hãy upload menu để mở vote nhé!",
+            )
+            logger.info("No menu image for %s — skip vote, admin notified.", target_str)
+            return
+
+        # Send menu photo if available
         if menu_image:
             photo_path = Path("static/menus") / menu_image
             if photo_path.exists():
@@ -231,23 +244,29 @@ async def _scheduled_monthly_summary(app: Application) -> None:
         paid_ids = await db.get_paid_user_ids(year_month)
 
         year, month = year_month.split("-")
-        header = f"📊 *Tổng kết tháng {int(month)}/{year}*\n{'─' * 28}"
-
-        lines = []
-        for i, r in enumerate(rows, 1):
-            status = "✅" if r.get("user_id") in paid_ids else "❌"
-            lines.append(f"{i}. {status} *{r['full_name']}*: {r['meal_count']} suất = *{r['total']:,}đ*")
-
-        text = f"{header}\n\n" + "\n".join(lines) + f"\n{'─' * 28}\n✅ = Đã đóng  ❌ = Chưa đóng"
-
-        await app.bot.send_message(
+        image = render_summary_image(rows, paid_ids, year_month)
+        await app.bot.send_photo(
             chat_id=config.CHAT_ID,
-            text=text,
-            parse_mode="Markdown",
+            photo=BytesIO(image),
+            caption=f"📊 Tổng kết tháng {int(month)}/{year}",
         )
         logger.info("✅ Monthly summary sent for %s", year_month)
     except Exception:
         logger.exception("❌ monthly_summary failed for %s", year_month)
+
+
+async def _scheduled_admin_digest(app: Application) -> None:
+    """20:00 T2-T5 — gửi riêng admin tổng hợp ai đã đặt cho vote ngày mai."""
+    tomorrow = _target_date(1)
+    logger.info("⏰ Scheduler: admin_digest triggered for %s", tomorrow)
+    try:
+        daily = await db.get_daily_vote(tomorrow)
+        if not daily or daily["status"] != "open":
+            return
+        await send_vote_digest(app.bot, tomorrow)
+        logger.info("✅ Admin digest sent for %s", tomorrow)
+    except Exception:
+        logger.exception("❌ admin_digest failed for %s", tomorrow)
 
 
 def build_scheduler(app: Application) -> AsyncIOScheduler:
@@ -260,12 +279,13 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
     morning_h, morning_m = _hm(config.VOTE_OPEN_TIME)      # 08:30
     evening_h, evening_m = _hm(config.EVENING_OPEN_TIME)   # 19:00
     announce_h, announce_m = _hm(config.ANNOUNCE_TIME)     # 10:30
+    digest_h, digest_m = _hm(config.ADMIN_DIGEST_TIME)     # 20:00
 
     scheduler = AsyncIOScheduler(timezone=tz)
-    # 19:00 T2-T5: tạo vote cho ngày mai (T3-T6)
+    # 19:00 CN-T5: tạo vote cho ngày mai (T2-T6) — gồm CN tạo vote cho thứ 2
     scheduler.add_job(
         _scheduled_open_vote,
-        trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="mon-thu", timezone=tz),
+        trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed,thu", timezone=tz),
         args=[app, 1], id="open_vote_evening", replace_existing=True, misfire_grace_time=300,
     )
     # 08:30 T2-T6: có vote → nhắc; chưa có → tạo vote (lưới an toàn)
@@ -279,6 +299,12 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         _scheduled_announce_roles,
         trigger=CronTrigger(hour=announce_h, minute=announce_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="announce_roles", replace_existing=True, misfire_grace_time=300,
+    )
+    # 20:00 CN-T5: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2)
+    scheduler.add_job(
+        _scheduled_admin_digest,
+        trigger=CronTrigger(hour=digest_h, minute=digest_m, day_of_week="sun,mon,tue,wed,thu", timezone=tz),
+        args=[app], id="admin_digest", replace_existing=True, misfire_grace_time=300,
     )
     # 14:00 hằng ngày: tổng kết tháng (tự thoát nếu không phải ngày cuối tháng)
     scheduler.add_job(
