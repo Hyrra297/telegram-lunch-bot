@@ -99,6 +99,7 @@ async def run_bot(tg_app: Application) -> None:
         BotCommand("reset_vote", "Xoá vote hôm nay để mở lại"),
         BotCommand("skip_today", "Hôm nay không đặt cơm"),
         BotCommand("skip_week", "Skip cả tuần sau (thêm 'this' để skip tuần này)"),
+        BotCommand("skip_next_day", "Skip ngày làm việc kế tiếp (bỏ qua T7/CN)"),
     ]
     await tg_app.bot.set_my_commands(user_commands)
     for admin_id in config.ADMIN_IDS:

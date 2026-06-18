@@ -38,8 +38,11 @@ python bot.py
 
 Mọi ngày T2–T6 đều tạo vote từ 19:00 tối hôm trước (CN tạo vote cho T2). Job 08:30
 là lưới an toàn (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và gửi tin nhắc nếu vote đã có.
-Ngoài ra: khi có **người mới** đặt vào đúng ngày ăn, bot nhắn riêng admin real-time
-(không vào nhóm). Xem `admin_notify.py`.
+Ngoài ra: **sau digest gửi admin lúc 20:00 tối hôm trước**, mọi thay đổi vote cho ngày
+đó (đặt mới, đổi món, huỷ) đều được nhắn riêng admin real-time (không vào nhóm) cho tới
+khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm trước. Trước mốc digest không
+báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers/vote.py`
+(so giờ với `ADMIN_DIGEST_TIME` của tối hôm trước); mẫu tin trong `admin_notify.py`.
 
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (20:00)
 

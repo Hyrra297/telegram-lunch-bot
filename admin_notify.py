@@ -27,6 +27,14 @@ def format_new_voter(name: str, count: int) -> str:
     return f"✅ {name} vừa đặt cơm — tổng {count} người."
 
 
+def format_changed_dish(name: str, count: int) -> str:
+    return f"🔄 {name} đổi món — tổng {count} người."
+
+
+def format_retracted(name: str, count: int) -> str:
+    return f"❌ {name} vừa huỷ cơm — còn {count} người."
+
+
 def format_digest(date: str, voters: list) -> str:
     d = _fmt_date(date)
     if not voters:
@@ -48,6 +56,14 @@ async def notify_admins(bot, text: str, exclude_user_id=None) -> None:
 
 async def notify_new_voter(bot, name: str, count: int, exclude_user_id=None) -> None:
     await notify_admins(bot, format_new_voter(name, count), exclude_user_id=exclude_user_id)
+
+
+async def notify_changed_dish(bot, name: str, count: int, exclude_user_id=None) -> None:
+    await notify_admins(bot, format_changed_dish(name, count), exclude_user_id=exclude_user_id)
+
+
+async def notify_retracted(bot, name: str, count: int, exclude_user_id=None) -> None:
+    await notify_admins(bot, format_retracted(name, count), exclude_user_id=exclude_user_id)
 
 
 async def send_vote_digest(bot, date: str) -> None:

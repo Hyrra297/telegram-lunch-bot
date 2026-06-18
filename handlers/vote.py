@@ -1,7 +1,7 @@
 from __future__ import annotations
 import base64
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta, time as dtime
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, PollAnswerHandler
@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, Pol
 import anthropic
 import config
 import database as db
-from admin_notify import notify_new_voter
+from admin_notify import notify_new_voter, notify_changed_dish, notify_retracted
 
 CALLBACK_VOTE_IN = "vote:in"
 CALLBACK_VOTE_OUT = "vote:out"
@@ -17,6 +17,19 @@ CALLBACK_VOTE_OUT = "vote:out"
 
 def _today(tz: str = config.TIMEZONE) -> str:
     return datetime.now(pytz.timezone(tz)).strftime("%Y-%m-%d")
+
+
+def _past_evening_digest(date: str, tz: str = config.TIMEZONE) -> bool:
+    """True nếu đã qua mốc digest tối (config.ADMIN_DIGEST_TIME, mặc định 20:00)
+    của tối hôm trước ngày `date` — tức là admin đã được gửi danh sách "chốt".
+
+    Sau mốc này, mọi thay đổi vote (đặt/đổi món/huỷ) cho ngày đó được nhắn riêng
+    admin real-time, cho tới khi vote đóng lúc 10:30. Trước mốc này không báo."""
+    zone = pytz.timezone(tz)
+    vote_date = datetime.strptime(date, "%Y-%m-%d").date()
+    h, m = map(int, config.ADMIN_DIGEST_TIME.split(":"))
+    digest_dt = zone.localize(datetime.combine(vote_date - timedelta(days=1), dtime(h, m)))
+    return datetime.now(zone) >= digest_dt
 
 
 def _build_keyboard() -> InlineKeyboardMarkup:
@@ -144,6 +157,9 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     date = daily["date"]
     dishes = await db.get_menu_items(date)
+    user = answer.user
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username or str(user_id)
+    was_voter = await db.is_voter(date, user_id)
 
     if not option_ids:
         # User retracted vote
@@ -153,21 +169,25 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "DELETE FROM vote_entries WHERE date=? AND user_id=?", (date, user_id)
             )
             await db_conn.commit()
+        # Báo riêng admin khi huỷ — chỉ sau digest tối 20:00 hôm trước
+        if was_voter and _past_evening_digest(date):
+            voters = await db.get_voters(date)
+            await notify_retracted(context.bot, full_name, len(voters), exclude_user_id=user_id)
     else:
         # Tự động thêm user vào bảng users nếu chưa có
-        user = answer.user
-        full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username or str(user_id)
-        was_voter = await db.is_voter(date, user_id)
         await db.ensure_user(user_id, user.username, full_name)
 
         idx = option_ids[0]
         dish = dishes[idx] if idx < len(dishes) else dishes[0]
         await db.vote_for_dish(date, user_id, dish)
 
-        # Báo riêng admin khi có người MỚI đặt, chỉ vào đúng ngày ăn
-        if not was_voter and date == _today():
+        # Báo riêng admin mọi thay đổi sau digest tối 20:00 hôm trước
+        if _past_evening_digest(date):
             voters = await db.get_voters(date)
-            await notify_new_voter(context.bot, full_name, len(voters), exclude_user_id=user_id)
+            if was_voter:
+                await notify_changed_dish(context.bot, full_name, len(voters), exclude_user_id=user_id)
+            else:
+                await notify_new_voter(context.bot, full_name, len(voters), exclude_user_id=user_id)
 
 
 async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -254,20 +274,23 @@ async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("Bạn chưa được thêm vào danh sách đặt cơm.", show_alert=True)
         return
 
-    joined = False
+    was_in = await db.is_voter(date, user.id)
+    now_in = was_in
     if query.data == CALLBACK_VOTE_IN:
-        voted_in = await db.toggle_vote(date, user.id)
-        joined = voted_in
-        await query.answer("Đã đăng ký đặt cơm!" if voted_in else "Đã huỷ đặt cơm.")
+        now_in = await db.toggle_vote(date, user.id)
+        await query.answer("Đã đăng ký đặt cơm!" if now_in else "Đã huỷ đặt cơm.")
     elif query.data == CALLBACK_VOTE_OUT:
-        await db.toggle_vote(date, user.id)
+        now_in = await db.toggle_vote(date, user.id)
         await query.answer("Đã bỏ phiếu (không đặt).")
 
     voters = await db.get_voters(date)
 
-    # Báo riêng admin khi có người MỚI đặt, chỉ vào đúng ngày ăn
-    if joined and date == _today():
-        await notify_new_voter(context.bot, member["full_name"], len(voters), exclude_user_id=user.id)
+    # Báo riêng admin mọi thay đổi sau digest tối 20:00 hôm trước
+    if now_in != was_in and _past_evening_digest(date):
+        if now_in:
+            await notify_new_voter(context.bot, member["full_name"], len(voters), exclude_user_id=user.id)
+        else:
+            await notify_retracted(context.bot, member["full_name"], len(voters), exclude_user_id=user.id)
 
     menu_description = daily.get("menu_description") or ""
     day_label = "hôm nay" if date == _today() else "ngày mai"

@@ -187,6 +187,34 @@ async def skip_week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def _next_working_day(today):
+    """Ngày làm việc (T2–T6) đầu tiên SAU `today`, bỏ qua T7/CN."""
+    nxt = today + timedelta(days=1)
+    while nxt.weekday() >= 5:  # 5=T7, 6=CN
+        nxt += timedelta(days=1)
+    return nxt
+
+
+@_require_admin
+async def skip_next_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Skip ngày làm việc kế tiếp (today+1, bỏ qua T7/CN) — không tạo vote."""
+    tz = pytz.timezone(config.TIMEZONE)
+    nxt = _next_working_day(datetime.now(tz).date())
+
+    async with aiosqlite.connect(db.DB_PATH) as db_conn:
+        await db_conn.execute(
+            """INSERT INTO daily_votes (date, price, ship_fee, status)
+               VALUES (?, ?, ?, 'closed')
+               ON CONFLICT(date) DO UPDATE SET status = 'closed'""",
+            (nxt.strftime("%Y-%m-%d"), config.PRICE_PER_MEAL, config.SHIP_FEE),
+        )
+        await db_conn.commit()
+
+    await update.message.reply_text(
+        f"⏭️ Đã skip {nxt.strftime('%a %d/%m')} — ngày làm việc kế tiếp không đặt cơm."
+    )
+
+
 @_require_admin
 async def assign(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Phân công thủ công khi vote đã đóng nhưng chưa có picker/returner."""
@@ -244,5 +272,6 @@ def get_handlers():
         CommandHandler("reset_vote", reset_vote),
         CommandHandler("skip_today", skip_today),
         CommandHandler("skip_week", skip_week),
+        CommandHandler("skip_next_day", skip_next_day),
         CommandHandler("assign", assign),
     ]

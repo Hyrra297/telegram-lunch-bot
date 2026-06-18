@@ -85,6 +85,35 @@ class TestHelpText:
         assert "summary" not in USER_COMMANDS  # /summary chỉ ở khối admin
 
 
+# ── handlers/admin.py ─────────────────────────────────────────────────────────
+
+class TestNextWorkingDay:
+    def test_weekday_returns_tomorrow(self):
+        from datetime import date
+        from handlers.admin import _next_working_day
+        # Thu 2026-06-11 -> Fri 2026-06-12
+        assert _next_working_day(date(2026, 6, 11)) == date(2026, 6, 12)
+
+    def test_friday_skips_to_monday(self):
+        from datetime import date
+        from handlers.admin import _next_working_day
+        # Fri 2026-06-12 -> Mon 2026-06-15
+        assert _next_working_day(date(2026, 6, 12)) == date(2026, 6, 15)
+
+    def test_saturday_and_sunday_skip_to_monday(self):
+        from datetime import date
+        from handlers.admin import _next_working_day
+        assert _next_working_day(date(2026, 6, 13)) == date(2026, 6, 15)  # Sat
+        assert _next_working_day(date(2026, 6, 14)) == date(2026, 6, 15)  # Sun
+
+    def test_result_is_never_weekend(self):
+        from datetime import date, timedelta
+        from handlers.admin import _next_working_day
+        base = date(2026, 6, 8)  # Monday
+        for i in range(14):
+            assert _next_working_day(base + timedelta(days=i)).weekday() < 5
+
+
 # ── handlers/payment.py ───────────────────────────────────────────────────────
 
 class TestMonthLabel:
@@ -194,12 +223,47 @@ class _FakeContext:
         self.bot = bot
 
 
+def _force_after_digest(monkeypatch, value=True):
+    """Ép cổng thời gian _past_evening_digest trả về giá trị mong muốn."""
+    import handlers.vote as votemod
+    monkeypatch.setattr(votemod, "_past_evening_digest", lambda *a, **k: value)
+
+
+class TestPastEveningDigest:
+    """Cổng thời gian: báo real-time sau digest tối 20:00 hôm trước (ADMIN_DIGEST_TIME)."""
+
+    def test_true_for_today_vote(self):
+        """Vote hôm nay: digest tối hôm qua chắc chắn đã qua → True."""
+        import handlers.vote as votemod
+        from handlers.vote import _today
+        assert votemod._past_evening_digest(_today()) is True
+
+    def test_false_for_far_future_vote(self):
+        """Vote ngày xa: digest tối hôm trước chưa tới → False."""
+        import handlers.vote as votemod
+        assert votemod._past_evening_digest("2099-12-31") is False
+
+    def test_true_for_tomorrow_vote_after_digest_time(self, monkeypatch):
+        """Vote ngày mai, digest đặt 00:00 → mốc digest (00:00 hôm nay) đã qua → True."""
+        import config
+        import handlers.vote as votemod
+        from datetime import datetime, timedelta
+        import pytz
+        monkeypatch.setattr(config, "ADMIN_DIGEST_TIME", "00:00")
+        tz = pytz.timezone(config.TIMEZONE)
+        tomorrow = (datetime.now(tz) + timedelta(days=1)).strftime("%Y-%m-%d")
+        assert votemod._past_evening_digest(tomorrow) is True
+
+
 class TestVoteNotifiesAdmin:
-    async def test_notifies_admin_on_new_voter_today(self, db, monkeypatch):
-        """Người mới đặt vào đúng ngày hôm nay → bot nhắn riêng admin."""
+    """Đường inline keyboard (fallback, không có món)."""
+
+    async def test_notifies_admin_on_new_voter_after_digest(self, db, monkeypatch):
+        """Người mới đặt sau digest tối → nhắn riêng admin."""
         import config
         from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN, _today
         monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, True)
         today = _today()
         await db.create_daily_vote(today, 6000, 45000, 20000)
         await db.add_user(42, "Người Test", "tester")
@@ -208,28 +272,148 @@ class TestVoteNotifiesAdmin:
         await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))
         assert bot.sent == [(1001, "✅ Người Test vừa đặt cơm — tổng 1 người.")]
 
-    async def test_no_notify_when_leaving(self, db, monkeypatch):
-        """Bỏ vote (toggle off) → KHÔNG nhắn admin."""
+    async def test_no_notify_before_digest(self, db, monkeypatch):
+        """Đặt trước digest tối 20:00 → KHÔNG báo real-time."""
         import config
         from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN, _today
         monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, False)
         today = _today()
         await db.create_daily_vote(today, 6001, 45000, 20000)
         await db.add_user(42, "Người Test", "tester")
-        await db.toggle_vote(today, 42)  # đã vote sẵn
         bot = _FakeBot()
         query = FakeCallbackQuery(message_id=6001, user_id=42, data=CALLBACK_VOTE_IN)
-        await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))  # tap → rời
-        assert bot.sent == []
-
-    async def test_no_notify_when_not_today(self, db, monkeypatch):
-        """Vote cho ngày mai (chưa tới ngày ăn) → KHÔNG real-time."""
-        import config
-        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN
-        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
-        await db.create_daily_vote("2099-12-31", 6002, 45000, 20000)
-        await db.add_user(42, "Người Test", "tester")
-        bot = _FakeBot()
-        query = FakeCallbackQuery(message_id=6002, user_id=42, data=CALLBACK_VOTE_IN)
         await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))
         assert bot.sent == []
+
+    async def test_notifies_admin_on_leaving_after_digest(self, db, monkeypatch):
+        """Huỷ vote sau digest tối → báo admin với tin huỷ + số người còn lại."""
+        import config
+        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN, _today
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, True)
+        today = _today()
+        await db.create_daily_vote(today, 6002, 45000, 20000)
+        await db.add_user(42, "Người Test", "tester")
+        await db.toggle_vote(today, 42)  # đã vote sẵn
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=6002, user_id=42, data=CALLBACK_VOTE_IN)
+        await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))  # tap → rời
+        assert bot.sent == [(1001, "❌ Người Test vừa huỷ cơm — còn 0 người.")]
+
+    async def test_notifies_for_next_day_vote_after_digest(self, db, monkeypatch):
+        """Vote cho ngày mai sau digest tối (chưa tới ngày ăn) → VẪN báo real-time."""
+        import config
+        from handlers.vote import handle_vote_callback, CALLBACK_VOTE_IN, _today
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, True)
+        future = "2099-12-31"
+        assert future != _today()
+        await db.create_daily_vote(future, 6003, 45000, 20000)
+        await db.add_user(42, "Người Test", "tester")
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=6003, user_id=42, data=CALLBACK_VOTE_IN)
+        await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))
+        assert bot.sent == [(1001, "✅ Người Test vừa đặt cơm — tổng 1 người.")]
+
+
+# ── handlers/vote.py — handle_poll_answer (native poll) ───────────────────────
+
+class _FakePollUser:
+    def __init__(self, user_id, first_name="", last_name="", username=None):
+        self.id = user_id
+        self.first_name = first_name
+        self.last_name = last_name
+        self.username = username
+
+
+class _FakePollAnswer:
+    def __init__(self, poll_id, user, option_ids):
+        self.poll_id = poll_id
+        self.user = user
+        self.option_ids = option_ids
+
+
+class _FakePollUpdate:
+    def __init__(self, poll_answer):
+        self.poll_answer = poll_answer
+
+
+class TestPollAnswerNotifiesAdmin:
+    """Đường native poll (có món)."""
+
+    async def _setup_poll(self, db, message_id=7000, poll_id="pollA"):
+        from handlers.vote import _today
+        today = _today()
+        await db.create_daily_vote(today, message_id, 45000, 20000)
+        await db.set_poll_id(today, poll_id)
+        await db.save_menu_items(today, ["Cơm gà", "Bún bò"])
+        return today, poll_id
+
+    async def test_poll_notifies_new_voter_after_digest(self, db, monkeypatch):
+        import config
+        from handlers.vote import handle_poll_answer
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, True)
+        _, poll_id = await self._setup_poll(db)
+        bot = _FakeBot()
+        user = _FakePollUser(42, first_name="Người", last_name="Test")
+        update = _FakePollUpdate(_FakePollAnswer(poll_id, user, [0]))
+        await handle_poll_answer(update, _FakeContext(bot))
+        assert bot.sent == [(1001, "✅ Người Test vừa đặt cơm — tổng 1 người.")]
+
+    async def test_poll_notifies_changed_dish_after_digest(self, db, monkeypatch):
+        import config
+        from handlers.vote import handle_poll_answer, _today
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, True)
+        today, poll_id = await self._setup_poll(db)
+        await db.add_user(42, "Người Test", "tester")
+        await db.vote_for_dish(today, 42, "Cơm gà")  # đã đặt món 0
+        bot = _FakeBot()
+        user = _FakePollUser(42, first_name="Người", last_name="Test", username="tester")
+        update = _FakePollUpdate(_FakePollAnswer(poll_id, user, [1]))  # đổi sang món 1
+        await handle_poll_answer(update, _FakeContext(bot))
+        assert bot.sent == [(1001, "🔄 Người Test đổi món — tổng 1 người.")]
+
+    async def test_poll_notifies_retract_after_digest(self, db, monkeypatch):
+        import config
+        from handlers.vote import handle_poll_answer, _today
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, True)
+        today, poll_id = await self._setup_poll(db)
+        await db.add_user(42, "Người Test", "tester")
+        await db.vote_for_dish(today, 42, "Cơm gà")
+        bot = _FakeBot()
+        user = _FakePollUser(42, first_name="Người", last_name="Test", username="tester")
+        update = _FakePollUpdate(_FakePollAnswer(poll_id, user, []))  # bỏ chọn
+        await handle_poll_answer(update, _FakeContext(bot))
+        assert bot.sent == [(1001, "❌ Người Test vừa huỷ cơm — còn 0 người.")]
+
+    async def test_poll_no_notify_before_digest(self, db, monkeypatch):
+        import config
+        from handlers.vote import handle_poll_answer
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        _force_after_digest(monkeypatch, False)
+        _, poll_id = await self._setup_poll(db)
+        bot = _FakeBot()
+        user = _FakePollUser(42, first_name="Người", last_name="Test")
+        update = _FakePollUpdate(_FakePollAnswer(poll_id, user, [0]))
+        await handle_poll_answer(update, _FakeContext(bot))
+        assert bot.sent == []
+
+
+# ── admin_notify.py — mẫu tin ─────────────────────────────────────────────────
+
+class TestAdminNotifyFormats:
+    def test_new_voter(self):
+        from admin_notify import format_new_voter
+        assert format_new_voter("An", 3) == "✅ An vừa đặt cơm — tổng 3 người."
+
+    def test_changed_dish(self):
+        from admin_notify import format_changed_dish
+        assert format_changed_dish("An", 3) == "🔄 An đổi món — tổng 3 người."
+
+    def test_retracted(self):
+        from admin_notify import format_retracted
+        assert format_retracted("An", 2) == "❌ An vừa huỷ cơm — còn 2 người."
