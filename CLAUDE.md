@@ -129,6 +129,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Admin check: `user_id in config.ADMIN_IDS`
 - `close_daily_vote()`: đóng + chọn người (dùng lúc 10:30). T2–T5: picker + returner; T6 (bún đậu): chỉ picker (returner = None)
 - `set_vote_closed()`: chỉ đóng, chưa chọn người (dùng trong announce_roles lúc 10:30)
+- **Giới hạn**: Lệnh admin thủ công `/close_vote` và `/assign` KHÔNG áp logic thứ 6 — nếu admin tự đóng/phân công vote thứ 6 sẽ vẫn gán người trả hộp và tính tiền ngay (logic cơm). Ngày bún đậu nên để luồng tự động (10:30 chỉ picker, 15:00 friday_settle) xử lý.
 - Web cần restart uvicorn sau khi sửa code Python
 
 ## Lưu ý khi deploy

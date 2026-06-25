@@ -413,3 +413,21 @@ class TestFridaySettle:
         await _scheduled_friday_settle(app, today=monday)
         daily = await db.get_daily_vote(monday)
         assert daily["cost_per_person"] is None
+
+    async def test_settle_after_close_applies_late_override(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(friday, 100, 45000, 20000)  # 08:30: giá toàn cục
+        await db.toggle_vote(friday, 1)
+        await db.toggle_vote(friday, 2)
+        await db.set_vote_closed(friday)                       # 10:30 đóng, chưa tính tiền
+        await db.set_day_price(friday, 30000, 0)               # admin nhập giá bún đậu thật SAU khi đóng
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 30000        # bảng giờ hiển thị giá đã chốt
+        assert daily["ship_fee"] == 0
+        assert daily["cost_per_person"] == 30000  # 30000 + round(0/2)
+        assert app.bot.sent_messages == []    # im lặng
