@@ -22,8 +22,19 @@ def _target_date(day_offset: int = 0) -> str:
     return (datetime.now(tz) + timedelta(days=day_offset)).strftime("%Y-%m-%d")
 
 
-def _open_vote_wording(day_offset: int) -> dict:
-    """Chữ hiển thị tuỳ vote tạo cho hôm nay hay cho ngày mai."""
+def _is_friday(date_str: str) -> bool:
+    """True nếu date_str (YYYY-MM-DD) là thứ 6."""
+    return datetime.strptime(date_str, "%Y-%m-%d").weekday() == 4
+
+
+def _open_vote_wording(day_offset: int, date_str: str | None = None) -> dict:
+    """Chữ hiển thị tuỳ vote tạo cho hôm nay hay ngày mai; thứ 6 dùng wording bún đậu."""
+    if date_str and _is_friday(date_str):
+        return {
+            "caption": "🍜 Thực đơn bún đậu hôm nay",
+            "poll_question": "🥢 Hôm nay ăn bún đậu gì?",
+            "day_label": "hôm nay",
+        }
     if day_offset >= 1:
         return {
             "caption": "🍽️ Thực đơn ngày mai",
@@ -40,7 +51,7 @@ def _open_vote_wording(day_offset: int) -> dict:
 async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
     """Tạo vote cho ngày đích. day_offset=0 → hôm nay, day_offset=1 → ngày mai."""
     target_str = _target_date(day_offset)
-    wording = _open_vote_wording(day_offset)
+    wording = _open_vote_wording(day_offset, target_str)
     logger.info("⏰ Scheduler: open_vote triggered for %s (offset=%d)", target_str, day_offset)
 
     try:
