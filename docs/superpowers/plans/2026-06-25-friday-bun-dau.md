@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Biến thứ 6 thành "ngày bún đậu" với luồng riêng — vote chỉ tạo lúc 8h30 sáng T6 (1 tin), wording bún đậu, giá/ship admin nhập tay qua web, phân công chỉ 1 người đi lấy (không trả hộp). Chỉ riêng thứ 6.
+**Goal:** Biến thứ 6 thành "ngày bún đậu" với luồng riêng — vote chỉ tạo lúc 8h30 sáng T6 (1 tin), wording bún đậu, giá/ship admin nhập tay qua web, phân công chỉ 1 người đi lấy (không trả hộp), 10h30 không tính tiền mà chốt tiền lúc 15h (áp giá admin + update bảng). Chỉ riêng thứ 6.
 
 **Architecture:** Thêm helper `_is_friday(date_str)` trong `scheduler.py` để rẽ nhánh theo thứ 6. Bỏ thứ 5 khỏi 2 job tối (19h tạo vote + 20h digest) ⇒ job sáng 8h30 (lưới an toàn sẵn có) tự tạo vote T6 thành tin duy nhất. Giá/ship per-day lưu vào 2 cột override nullable mới trên `daily_votes`; admin nhập qua form tuần trong web; job tạo vote ưu tiên giá override nếu có. Notify real-time admin giữ nguyên (đã đúng tự nhiên cho T6).
 
@@ -21,8 +21,8 @@
 
 ## File Structure
 
-- `scheduler.py` — thêm `_is_friday`; sửa `_open_vote_wording` (wording bún đậu); sửa `_scheduled_open_vote` (ưu tiên giá override); sửa `_scheduled_announce_roles` (nhận `today` param + nhánh T6 chỉ picker); sửa `build_scheduler` (bỏ `thu` ở 2 job).
-- `database.py` — thêm 2 cột migration `price_override`/`ship_fee_override`; thêm `set_day_price`; `get_week_data` trả thêm 2 field override.
+- `scheduler.py` — thêm `_is_friday`; sửa `_open_vote_wording` (wording bún đậu); sửa `_scheduled_open_vote` (ưu tiên giá override); sửa `_scheduled_announce_roles` (nhận `today` param + nhánh T6 chỉ picker + bỏ tính tiền 10h30); thêm `_scheduled_friday_settle` (chốt tiền 15h); sửa `build_scheduler` (bỏ `thu` ở 2 job + thêm job `friday_settle`).
+- `database.py` — thêm 2 cột migration `price_override`/`ship_fee_override`; thêm `set_day_price`; thêm `set_day_actual_price` (ghi giá thực); `get_week_data` trả thêm 2 field override.
 - `web/app.py` — `/save-menu-items` nhận thêm `price`/`ship_fee`, gọi `set_day_price`.
 - `web/templates/index.html` — thêm 2 ô input (price, ship_fee) vào form lưu món của mỗi ngày.
 - `tests/test_scheduler.py` — test wording T6, trigger 2 job bỏ thu, nhánh announce T6, ưu tiên giá override; mở rộng `FakeBot`.
@@ -265,6 +265,8 @@ class TestAnnounceRoles:
         assert daily["status"] == "closed"
         assert daily["picker_user_id"] is not None
         assert daily["returner_user_id"] is None
+        # Thứ 6: KHÔNG tính tiền lúc 10h30 (đợi job 15h)
+        assert daily["cost_per_person"] is None
         joined = " ".join(app.bot.sent_messages)
         assert "đi lấy bún đậu" in joined
         assert "trả hộp" not in joined
@@ -278,6 +280,8 @@ class TestAnnounceRoles:
 
         daily = await db.get_daily_vote(monday)
         assert daily["returner_user_id"] is not None
+        # Ngày thường: vẫn tính tiền lúc 10h30
+        assert daily["cost_per_person"] is not None
         joined = " ".join(app.bot.sent_messages)
         assert "trả hộp" in joined
 ```
@@ -323,6 +327,33 @@ Thay khối chọn người + dựng `roles_text` (từ `picker = await db.pick_
                 roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
             else:
                 roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
+```
+
+Tiếp theo, bọc khối tính tiền 10h30 để **thứ 6 KHÔNG tính tiền** (đợi job 15h). Thay khối:
+
+```python
+        # Tính chi phí mỗi người
+        price = daily.get("price") or config.PRICE_PER_MEAL
+        ship_fee = daily.get("ship_fee") or config.SHIP_FEE
+        cost_per_person = price + round(ship_fee / len(voters))
+        await db.set_cost_per_person(today, cost_per_person)
+```
+
+bằng:
+
+```python
+        # Tính chi phí mỗi người — thứ 6 (bún đậu) đợi job 15h, KHÔNG tính lúc 10h30
+        if not _is_friday(today):
+            price = daily.get("price") or config.PRICE_PER_MEAL
+            ship_fee = daily.get("ship_fee") or config.SHIP_FEE
+            cost_per_person = price + round(ship_fee / len(voters))
+            await db.set_cost_per_person(today, cost_per_person)
+```
+
+Lưu ý dòng `logger.info(... cost=%s ..., cost_per_person)` ngay sau đó tham chiếu `cost_per_person` — đổi dòng log thành không phụ thuộc biến đó để tránh `NameError` khi thứ 6:
+
+```python
+        logger.info("✅ Roles assigned for %s, picker=%s", today, picker["username"])
 ```
 
 - [ ] **Step 4: Chạy test để xác nhận pass**
@@ -550,7 +581,180 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Web — ô nhập giá/ship + endpoint lưu override
+### Task 6: Chốt tiền thứ 6 lúc 15h (job `friday_settle`)
+
+**Files:**
+- Modify: `database.py` (thêm `set_day_actual_price`)
+- Modify: `scheduler.py` (thêm `_scheduled_friday_settle`; đăng ký job trong `build_scheduler`)
+- Test: `tests/test_scheduler.py` (class `TestFridaySettle`; cập nhật `test_job_ids`; thêm `test_friday_settle_job`)
+
+**Interfaces:**
+- Consumes: `_is_friday` (Task 1); `daily["price_override"]`/`ship_fee_override` (Task 4); `db.get_voters`, `db.set_cost_per_person`.
+- Produces:
+  - `set_day_actual_price(date: str, price: int, ship_fee: int) -> None` — UPDATE `daily_votes.price`/`ship_fee` (giá thực bảng đọc live).
+  - `_scheduled_friday_settle(app, today: str | None = None) -> None` — chỉ chạy thứ 6: áp giá override (nếu có) vào giá thực, tính lại `cost_per_person`. Im lặng (không gửi tin).
+  - Job `friday_settle` trong scheduler: `hour=15, minute=0, day_of_week="fri"`.
+
+- [ ] **Step 1: Viết test thất bại**
+
+Thêm hàm vào `tests/test_scheduler.py` (cuối file):
+
+```python
+class TestFridaySettle:
+    async def test_applies_override_and_computes_cost(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)            # đã đóng vote lúc 10h30
+        await db.toggle_vote(friday, 1)
+        await db.toggle_vote(friday, 2)
+        await db.set_day_price(friday, 30000, 0)    # admin nhập giá bún đậu thật
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 30000              # giá thực đã áp override
+        assert daily["ship_fee"] == 0
+        assert daily["cost_per_person"] == 30000    # 30000 + round(0/2)
+        assert app.bot.sent_messages == []          # im lặng, không gửi tin
+
+    async def test_no_override_uses_existing_price(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)
+        await db.toggle_vote(friday, 1)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 45000
+        assert daily["cost_per_person"] == 65000    # 45000 + round(20000/1)
+
+    async def test_skips_when_no_voters(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["cost_per_person"] is None
+
+    async def test_non_friday_noop(self, db):
+        from scheduler import _scheduled_friday_settle
+        monday = "2026-01-05"
+        await db.create_daily_vote(monday, 100, 45000, 20000)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=monday)
+        daily = await db.get_daily_vote(monday)
+        assert daily["cost_per_person"] is None
+```
+
+Cập nhật `test_job_ids` trong `TestBuildScheduler` — thêm `"friday_settle"` vào set:
+
+```python
+    def test_job_ids(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        ids = {j.id for j in sched.get_jobs()}
+        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
+        assert "vote_reminder" not in ids
+        assert "open_vote" not in ids
+```
+
+Thêm test trigger trong `TestBuildScheduler`:
+
+```python
+    def test_friday_settle_job(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        assert "friday_settle" in jobs
+        trig = str(jobs["friday_settle"].trigger)
+        assert "hour='15'" in trig
+        assert "day_of_week='fri'" in trig
+```
+
+- [ ] **Step 2: Chạy test để xác nhận thất bại**
+
+Run: `python -m pytest tests/test_scheduler.py::TestFridaySettle tests/test_scheduler.py::TestBuildScheduler::test_friday_settle_job -v`
+Expected: FAIL — `ImportError`/`AttributeError`: chưa có `_scheduled_friday_settle`/`set_day_actual_price`/job.
+
+- [ ] **Step 3: Thêm `set_day_actual_price` (database.py)**
+
+Đặt ngay sau `set_day_price` (Task 4):
+
+```python
+async def set_day_actual_price(date: str, price: int, ship_fee: int) -> None:
+    """Ghi giá/ship thực tế (đã chốt) vào daily_votes — bảng tổng kết đọc live từ đây."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE daily_votes SET price = ?, ship_fee = ? WHERE date = ?",
+            (price, ship_fee, date),
+        )
+        await db.commit()
+```
+
+- [ ] **Step 4: Thêm `_scheduled_friday_settle` + đăng ký job (scheduler.py)**
+
+Thêm hàm ngay sau `_scheduled_admin_digest` (trước `build_scheduler`):
+
+```python
+async def _scheduled_friday_settle(app: Application, today: str | None = None) -> None:
+    """15:00 thứ 6 — chốt tiền bún đậu: áp giá override admin vào giá thực,
+    tính lại cost_per_person (update bảng). Im lặng, không gửi thông báo."""
+    if today is None:
+        today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    if not _is_friday(today):
+        return
+    logger.info("⏰ Scheduler: friday_settle triggered for %s", today)
+    try:
+        daily = await db.get_daily_vote(today)
+        if not daily or daily["status"] not in ("open", "closed"):
+            return
+        voters = await db.get_voters(today)
+        if not voters:
+            return
+        price = daily["price_override"] if daily["price_override"] is not None else daily["price"]
+        ship_fee = daily["ship_fee_override"] if daily["ship_fee_override"] is not None else daily["ship_fee"]
+        await db.set_day_actual_price(today, price, ship_fee)
+        cost_per_person = price + round(ship_fee / len(voters))
+        await db.set_cost_per_person(today, cost_per_person)
+        logger.info("✅ Friday settle %s: price=%s ship=%s cost=%s", today, price, ship_fee, cost_per_person)
+    except Exception:
+        logger.exception("❌ friday_settle failed for %s", today)
+```
+
+Trong `build_scheduler`, thêm job (sau job `monthly_summary`, trước `return scheduler`):
+
+```python
+    # 15:00 thứ 6: chốt tiền bún đậu (áp giá admin + tính cost), im lặng
+    scheduler.add_job(
+        _scheduled_friday_settle,
+        trigger=CronTrigger(hour=15, minute=0, day_of_week="fri", timezone=tz),
+        args=[app], id="friday_settle", replace_existing=True, misfire_grace_time=300,
+    )
+```
+
+- [ ] **Step 5: Chạy test để xác nhận pass**
+
+Run: `python -m pytest tests/test_scheduler.py::TestFridaySettle tests/test_scheduler.py::TestBuildScheduler -v`
+Expected: PASS toàn bộ (gồm `test_job_ids` đã cập nhật + `test_friday_settle_job`).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add database.py scheduler.py tests/test_scheduler.py
+git commit -m "feat: chốt tiền thứ 6 lúc 15h — áp giá admin + tính cost, update bảng
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Web — ô nhập giá/ship + endpoint lưu override
 
 **Files:**
 - Modify: `web/app.py::save_menu_items_endpoint` (nhận `price`/`ship_fee`)
@@ -669,7 +873,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 7: Chạy full test suite + cập nhật tài liệu
+### Task 8: Chạy full test suite + cập nhật tài liệu
 
 **Files:**
 - Modify: `CLAUDE.md` (mô tả lịch thứ 6); `C:\Users\CPU60361_LOCAL\.claude\projects\d--telegram-lunch-bot\memory\MEMORY.md` (nếu cần ghi nhớ)
@@ -681,7 +885,7 @@ Expected: PASS toàn bộ, không regression.
 
 - [ ] **Step 2: Cập nhật CLAUDE.md**
 
-Trong `CLAUDE.md`, bảng "Lịch tự động": thêm/ghi chú thứ 6 là ngày bún đậu — vote chỉ tạo 8h30 (không tạo tối T5, không digest cho T6), wording bún đậu, phân công chỉ 1 người đi lấy (không trả hộp), giá/ship admin nhập tay qua web. Sửa dòng job 19h/20h ghi rõ `day_of_week=sun,mon,tue,wed` (CN–T4, không gồm T5).
+Trong `CLAUDE.md`, bảng "Lịch tự động": thêm/ghi chú thứ 6 là ngày bún đậu — vote chỉ tạo 8h30 (không tạo tối T5, không digest cho T6), wording bún đậu, phân công chỉ 1 người đi lấy (không trả hộp), **10h30 KHÔNG tính tiền**, **15h chốt tiền (job `friday_settle`): áp giá admin + tính cost, update bảng**, giá/ship admin nhập tay qua web. Sửa dòng job 19h/20h ghi rõ `day_of_week=sun,mon,tue,wed` (CN–T4, không gồm T5). Cập nhật danh sách "5 jobs" trong mô tả `scheduler.py` thành 6 jobs (thêm `friday_settle`).
 
 - [ ] **Step 3: Commit**
 
@@ -699,8 +903,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Spec coverage:**
 - Vote chỉ tạo 8h30 T6, không tạo tối T5 + không digest → Task 2 (bỏ `thu` ở 2 job); job sáng sẵn có tạo vote (đã test ở `TestScheduledMorning`). ✓
 - Wording bún đậu → Task 1. ✓
-- Giá/ship admin nhập tay, không ghi đè → Task 4 (cột override + set_day_price) + Task 5 (resolve khi tạo) + Task 6 (web nhập). ✓
+- Giá/ship admin nhập tay, không ghi đè → Task 4 (cột override + set_day_price) + Task 5 (resolve khi tạo) + Task 7 (web nhập). ✓
 - 1 người đi lấy, không trả hộp → Task 3. ✓
+- 10h30 T6 KHÔNG tính tiền → Task 3 (bọc `if not _is_friday`); test `cost_per_person is None`. ✓
+- 15h T6 chốt tiền update bảng (áp giá admin vào `daily_votes.price` + tính cost, im lặng) → Task 6 (`set_day_actual_price` + `_scheduled_friday_settle` + job). ✓
 - Notify real-time admin giữ nguyên → không sửa code (spec mục 5); không có task — đúng chủ đích. ✓
 - Chỉ riêng thứ 6 → mọi nhánh đều rẽ qua `_is_friday`; các ngày khác giữ hành vi (test `test_non_friday_*`). ✓
 

@@ -64,7 +64,17 @@ Các ngày khác giữ nguyên wording hiện tại.
   - **Không** gọi `pick_next_returner`; `close_daily_vote(today, picker_id, None)`.
   - Tin nhắn: `🛵 @X đi lấy bún đậu` (thay "đi lấy cơm").
   - Không cập nhật hàng đợi trả hộp (returner) trong ngày T6.
-- Tính tiền giữ công thức `price + round(ship_fee / voter_count)`; nếu admin để ship=0 thì mỗi người = giá bún đậu.
+  - **KHÔNG tính tiền lúc 10h30** cho thứ 6 (bọc khối `set_cost_per_person` trong `if not _is_friday(today)`). Giá bún đậu thực tế chốt sau, để job 15h tính.
+- Các ngày khác giữ công thức tính tiền `price + round(ship_fee / voter_count)` tại 10h30 như cũ.
+
+### 4b. Chốt tiền thứ 6 lúc 15h — update vào bảng
+- **Job mới `friday_settle`** lúc 15:00, `day_of_week="fri"` (chỉ thứ 6).
+- Hành động (im lặng, KHÔNG gửi thông báo):
+  - Lấy `daily = get_daily_vote(today)`, `voters = get_voters(today)`. Không có vote hợp lệ hoặc không ai vote → bỏ qua.
+  - **Áp giá override admin nhập vào giá thực**: `price = price_override nếu có, else daily["price"]`; tương tự `ship`. Ghi `daily_votes.price`/`ship_fee` = giá đã chốt (hàm mới `set_day_actual_price`). ⇒ Bảng tổng kết (đọc live từ `daily_votes.price`) hiển thị đúng giá bún đậu admin chốt buổi chiều.
+  - Tính `cost_per_person = price + round(ship / len(voters))`, lưu `set_cost_per_person` (cho bản ghi/log).
+- Lý do 15h: admin mua bún đậu xong mới biết giá thật → nhập/chỉnh giá qua web trước 15h; 15h bot mới "chốt" để update bảng. `cost_per_person` hiện không hiển thị trực tiếp (bảng tính live), nên việc cập nhật `daily_votes.price`/`ship_fee` mới là phần làm bảng đúng.
+- Lưu ý ngoài phạm vi: lệnh admin thủ công `/close_vote` (handlers/admin.py) vẫn tính tiền ngay khi đóng — không đổi (admin tự chủ động).
 
 ### 5. Thông báo riêng admin — GIỮ NGUYÊN (real-time bật cho T6)
 - Thứ 6 admin **vẫn nhận notify real-time** mỗi khi có người đặt/đổi/huỷ bún đậu trong khoảng 8h30–10h30, để biết số lượng mà đi đặt.
@@ -72,8 +82,8 @@ Các ngày khác giữ nguyên wording hiện tại.
 - Lưu ý: T6 không có "danh sách chốt" 20h tối hôm trước (baseline digest), nhưng các tin real-time đều kèm số người hiện tại nên vẫn đủ thông tin.
 
 ## File sẽ sửa
-- `scheduler.py` — bỏ `thu` ở `open_vote_evening` + `admin_digest`; thêm `_is_friday`; wording bún đậu trong `_open_vote_wording`; nhánh T6 trong `_scheduled_announce_roles`; tôn trọng giá admin trong `_scheduled_open_vote`.
-- `database.py` — `create_daily_vote`/logic không ghi đè giá admin; thêm `set_day_price`; `get_week_data` trả thêm `price`/`ship_fee`.
+- `scheduler.py` — bỏ `thu` ở `open_vote_evening` + `admin_digest`; thêm `_is_friday`; wording bún đậu trong `_open_vote_wording`; nhánh T6 trong `_scheduled_announce_roles` (1 picker + bỏ tính tiền 10h30); tôn trọng giá admin trong `_scheduled_open_vote`; **job mới `friday_settle` 15h + hàm `_scheduled_friday_settle`**.
+- `database.py` — không ghi đè giá admin; thêm `set_day_price`; **thêm `set_day_actual_price`** (ghi giá thực vào `daily_votes.price`/`ship_fee`); `get_week_data` trả thêm `price_override`/`ship_fee_override`.
 - `web/app.py` — endpoint lưu giá/ship theo ngày.
 - `web/templates/index.html` — ô nhập giá/ship mỗi ngày.
 - `handlers/vote.py` — **không sửa**; notify real-time admin cho T6 đã đúng tự nhiên.
@@ -81,7 +91,8 @@ Các ngày khác giữ nguyên wording hiện tại.
 ## Kiểm thử
 - T6 không có vote tối T5 (kiểm tra job evening/digest bỏ qua thứ 5).
 - T6 8h30: có ảnh menu → tạo vote bún đậu (wording đúng); thiếu ảnh → nhắn admin, không tạo.
-- T6 10h30: chỉ 1 picker, không returner; tin nhắn "đi lấy bún đậu".
+- T6 10h30: chỉ 1 picker, không returner; tin nhắn "đi lấy bún đậu"; **`cost_per_person` chưa được tính (vẫn None)**.
+- T6 15h: áp giá override vào `daily_votes.price`/`ship_fee`, tính lại `cost_per_person`; không ai vote → bỏ qua; không gửi tin.
 - Giá admin nhập qua web cho T6 không bị ghi đè khi tạo vote 8h30; ship=0 → mỗi người = giá bún đậu.
 - T6 VẪN bắn notify real-time admin giữa 8h30–10h30 (đặt/đổi/huỷ bún đậu), gồm cả voter đầu tiên.
 - Ngày T2–T5: hành vi không đổi (vẫn tạo tối hôm trước, có returner, wording cơm).
@@ -89,4 +100,6 @@ Các ngày khác giữ nguyên wording hiện tại.
 ## Ngoài phạm vi (YAGNI)
 - Không đổi món cố định/giá cố định cho bún đậu (admin nhập tay).
 - Không thêm digest riêng cho thứ 6.
-- Không đổi luồng các ngày khác.
+- Không đổi luồng các ngày khác (10h30 các ngày khác vẫn tính tiền như cũ).
+- Không gửi thông báo lúc 15h (chốt tiền im lặng).
+- Không đổi lệnh admin thủ công `/close_vote` (vẫn tính tiền khi đóng).
