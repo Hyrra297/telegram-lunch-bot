@@ -285,6 +285,16 @@ async def set_day_price(date: str, price_override: Optional[int], ship_fee_overr
         await db.commit()
 
 
+async def set_day_actual_price(date: str, price: int, ship_fee: int) -> None:
+    """Ghi giá/ship thực tế (đã chốt) vào daily_votes — bảng tổng kết đọc live từ đây."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE daily_votes SET price = ?, ship_fee = ? WHERE date = ?",
+            (price, ship_fee, date),
+        )
+        await db.commit()
+
+
 # ── Vote entries ──────────────────────────────────────────────────────────────
 
 async def toggle_vote(date: str, user_id: int) -> bool:

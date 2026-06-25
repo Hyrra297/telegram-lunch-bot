@@ -222,7 +222,7 @@ class TestBuildScheduler:
         from scheduler import build_scheduler
         sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
         ids = {j.id for j in sched.get_jobs()}
-        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest"}
+        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
         assert "vote_reminder" not in ids
         assert "open_vote" not in ids
 
@@ -259,6 +259,15 @@ class TestBuildScheduler:
         jobs = {j.id: j for j in sched.get_jobs()}
         # args = [app, day_offset]; job tối phải truyền day_offset=1
         assert jobs["open_vote_evening"].args[1] == 1
+
+    def test_friday_settle_job(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        assert "friday_settle" in jobs
+        trig = str(jobs["friday_settle"].trigger)
+        assert "hour='15'" in trig
+        assert "day_of_week='fri'" in trig
 
 
 class TestIsFriday:
@@ -352,3 +361,55 @@ class TestOpenVotePriceOverride:
         daily = await db.get_daily_vote(today)
         assert daily["price"] == config.PRICE_PER_MEAL   # 45000
         assert daily["ship_fee"] == config.SHIP_FEE      # 20000
+
+
+class TestFridaySettle:
+    async def test_applies_override_and_computes_cost(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)            # đã đóng vote lúc 10h30
+        await db.toggle_vote(friday, 1)
+        await db.toggle_vote(friday, 2)
+        await db.set_day_price(friday, 30000, 0)    # admin nhập giá bún đậu thật
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 30000              # giá thực đã áp override
+        assert daily["ship_fee"] == 0
+        assert daily["cost_per_person"] == 30000    # 30000 + round(0/2)
+        assert app.bot.sent_messages == []          # im lặng, không gửi tin
+
+    async def test_no_override_uses_existing_price(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)
+        await db.toggle_vote(friday, 1)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 45000
+        assert daily["cost_per_person"] == 65000    # 45000 + round(20000/1)
+
+    async def test_skips_when_no_voters(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["cost_per_person"] is None
+
+    async def test_non_friday_noop(self, db):
+        from scheduler import _scheduled_friday_settle
+        monday = "2026-01-05"
+        await db.create_daily_vote(monday, 100, 45000, 20000)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=monday)
+        daily = await db.get_daily_vote(monday)
+        assert daily["cost_per_person"] is None

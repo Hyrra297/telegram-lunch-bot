@@ -294,6 +294,31 @@ async def _scheduled_admin_digest(app: Application) -> None:
         logger.exception("❌ admin_digest failed for %s", tomorrow)
 
 
+async def _scheduled_friday_settle(app: Application, today: str | None = None) -> None:
+    """15:00 thứ 6 — chốt tiền bún đậu: áp giá override admin vào giá thực,
+    tính lại cost_per_person (update bảng). Im lặng, không gửi thông báo."""
+    if today is None:
+        today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    if not _is_friday(today):
+        return
+    logger.info("⏰ Scheduler: friday_settle triggered for %s", today)
+    try:
+        daily = await db.get_daily_vote(today)
+        if not daily or daily["status"] not in ("open", "closed"):
+            return
+        voters = await db.get_voters(today)
+        if not voters:
+            return
+        price = daily["price_override"] if daily["price_override"] is not None else daily["price"]
+        ship_fee = daily["ship_fee_override"] if daily["ship_fee_override"] is not None else daily["ship_fee"]
+        await db.set_day_actual_price(today, price, ship_fee)
+        cost_per_person = price + round(ship_fee / len(voters))
+        await db.set_cost_per_person(today, cost_per_person)
+        logger.info("✅ Friday settle %s: price=%s ship=%s cost=%s", today, price, ship_fee, cost_per_person)
+    except Exception:
+        logger.exception("❌ friday_settle failed for %s", today)
+
+
 def build_scheduler(app: Application) -> AsyncIOScheduler:
     tz = pytz.timezone(config.TIMEZONE)
 
@@ -336,5 +361,11 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         _scheduled_monthly_summary,
         trigger=CronTrigger(hour=14, minute=0, day_of_week="mon-sun", timezone=tz),
         args=[app], id="monthly_summary", replace_existing=True, misfire_grace_time=300,
+    )
+    # 15:00 thứ 6: chốt tiền bún đậu (áp giá admin + tính cost), im lặng
+    scheduler.add_job(
+        _scheduled_friday_settle,
+        trigger=CronTrigger(hour=15, minute=0, day_of_week="fri", timezone=tz),
+        args=[app], id="friday_settle", replace_existing=True, misfire_grace_time=300,
     )
     return scheduler
