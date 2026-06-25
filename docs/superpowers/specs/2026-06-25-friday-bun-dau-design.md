@@ -66,23 +66,24 @@ Các ngày khác giữ nguyên wording hiện tại.
   - Không cập nhật hàng đợi trả hộp (returner) trong ngày T6.
 - Tính tiền giữ công thức `price + round(ship_fee / voter_count)`; nếu admin để ship=0 thì mỗi người = giá bún đậu.
 
-### 5. Thông báo riêng admin
-- Thứ 6 không có digest tối hôm trước ⇒ **không** bắn notify real-time cho admin trong ngày T6.
-- `handlers/vote.py::_past_evening_digest(date)` trả `False` khi `_is_friday(date)` (giữ nguyên tắc "chỉ báo real-time sau digest"). Admin vẫn nhận tin chốt sổ 10h30 như mọi ngày.
+### 5. Thông báo riêng admin — GIỮ NGUYÊN (real-time bật cho T6)
+- Thứ 6 admin **vẫn nhận notify real-time** mỗi khi có người đặt/đổi/huỷ bún đậu trong khoảng 8h30–10h30, để biết số lượng mà đi đặt.
+- **Không cần sửa code**: `_past_evening_digest("<thứ 6>")` đã trả `True` trong khoảng 8h30–10h30 (vì đã qua mốc 20h tối T5), nên cơ chế notify real-time sẵn có tự động hoạt động cho T6. Voter đầu tiên trong ngày cũng được báo (`was_voter=False → notify_new_voter`).
+- Lưu ý: T6 không có "danh sách chốt" 20h tối hôm trước (baseline digest), nhưng các tin real-time đều kèm số người hiện tại nên vẫn đủ thông tin.
 
 ## File sẽ sửa
 - `scheduler.py` — bỏ `thu` ở `open_vote_evening` + `admin_digest`; thêm `_is_friday`; wording bún đậu trong `_open_vote_wording`; nhánh T6 trong `_scheduled_announce_roles`; tôn trọng giá admin trong `_scheduled_open_vote`.
 - `database.py` — `create_daily_vote`/logic không ghi đè giá admin; thêm `set_day_price`; `get_week_data` trả thêm `price`/`ship_fee`.
 - `web/app.py` — endpoint lưu giá/ship theo ngày.
 - `web/templates/index.html` — ô nhập giá/ship mỗi ngày.
-- `handlers/vote.py` — `_past_evening_digest` trả `False` cho thứ 6.
+- `handlers/vote.py` — **không sửa**; notify real-time admin cho T6 đã đúng tự nhiên.
 
 ## Kiểm thử
 - T6 không có vote tối T5 (kiểm tra job evening/digest bỏ qua thứ 5).
 - T6 8h30: có ảnh menu → tạo vote bún đậu (wording đúng); thiếu ảnh → nhắn admin, không tạo.
 - T6 10h30: chỉ 1 picker, không returner; tin nhắn "đi lấy bún đậu".
 - Giá admin nhập qua web cho T6 không bị ghi đè khi tạo vote 8h30; ship=0 → mỗi người = giá bún đậu.
-- T6 không bắn notify real-time admin giữa 8h30–10h30.
+- T6 VẪN bắn notify real-time admin giữa 8h30–10h30 (đặt/đổi/huỷ bún đậu), gồm cả voter đầu tiên.
 - Ngày T2–T5: hành vi không đổi (vẫn tạo tối hôm trước, có returner, wording cơm).
 
 ## Ngoài phạm vi (YAGNI)
