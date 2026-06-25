@@ -329,3 +329,26 @@ class TestAnnounceRoles:
         assert daily["cost_per_person"] is not None
         joined = " ".join(app.bot.sent_messages)
         assert "trả hộp" in joined
+
+
+class TestOpenVotePriceOverride:
+    async def test_uses_price_override(self, db):
+        from scheduler import _scheduled_open_vote, _target_date
+        today = _target_date(0)
+        await db.set_menu_image(today, "menu.jpg")
+        await db.set_day_price(today, 30000, 0)
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=0)
+        daily = await db.get_daily_vote(today)
+        assert daily["price"] == 30000
+        assert daily["ship_fee"] == 0
+
+    async def test_no_override_uses_global(self, db):
+        from scheduler import _scheduled_open_vote, _target_date
+        today = _target_date(0)
+        await db.set_menu_image(today, "menu.jpg")
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=0)
+        daily = await db.get_daily_vote(today)
+        assert daily["price"] == config.PRICE_PER_MEAL   # 45000
+        assert daily["ship_fee"] == config.SHIP_FEE      # 20000
