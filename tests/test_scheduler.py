@@ -226,7 +226,17 @@ class TestBuildScheduler:
         jobs = {j.id: j for j in sched.get_jobs()}
         trig = str(jobs["open_vote_evening"].trigger)
         assert "hour='19'" in trig
-        assert "day_of_week='sun,mon,tue,wed,thu'" in trig
+        assert "day_of_week='sun,mon,tue,wed'" in trig
+        assert "thu" not in trig
+
+    def test_digest_job_excludes_thursday(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        trig = str(jobs["admin_digest"].trigger)
+        assert "hour='20'" in trig
+        assert "day_of_week='sun,mon,tue,wed'" in trig
+        assert "thu" not in trig
 
     def test_morning_job_trigger(self):
         from scheduler import build_scheduler

@@ -293,10 +293,10 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
     digest_h, digest_m = _hm(config.ADMIN_DIGEST_TIME)     # 20:00
 
     scheduler = AsyncIOScheduler(timezone=tz)
-    # 19:00 CN-T5: tạo vote cho ngày mai (T2-T6) — gồm CN tạo vote cho thứ 2
+    # 19:00 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job 08:30 tạo
     scheduler.add_job(
         _scheduled_open_vote,
-        trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed,thu", timezone=tz),
+        trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed", timezone=tz),
         args=[app, 1], id="open_vote_evening", replace_existing=True, misfire_grace_time=300,
     )
     # 08:30 T2-T6: có vote → nhắc; chưa có → tạo vote (lưới an toàn)
@@ -311,10 +311,10 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         trigger=CronTrigger(hour=announce_h, minute=announce_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="announce_roles", replace_existing=True, misfire_grace_time=300,
     )
-    # 20:00 CN-T5: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2)
+    # 20:00 CN-T4: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2; bỏ T5 vì T6 không tạo vote tối)
     scheduler.add_job(
         _scheduled_admin_digest,
-        trigger=CronTrigger(hour=digest_h, minute=digest_m, day_of_week="sun,mon,tue,wed,thu", timezone=tz),
+        trigger=CronTrigger(hour=digest_h, minute=digest_m, day_of_week="sun,mon,tue,wed", timezone=tz),
         args=[app], id="admin_digest", replace_existing=True, misfire_grace_time=300,
     )
     # 14:00 hằng ngày: tổng kết tháng (tự thoát nếu không phải ngày cuối tháng)
