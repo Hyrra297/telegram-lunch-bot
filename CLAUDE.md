@@ -35,8 +35,8 @@ python bot.py
 | 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). **T6: đây là job DUY NHẤT tạo vote bún đậu** (caption `🍜 Thực đơn bún đậu hôm nay`, poll `🥢 Hôm nay ăn bún đậu gì?`) |
 | 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền |
 | 10:30 | T6 | Đóng vote + **chỉ phân công 1 picker** đi lấy bún đậu (`🛵 @X đi lấy bún đậu`). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
-| 15:00 | T6 | **`friday_settle`**: áp giá/ship admin nhập tay (`price_override`/`ship_fee_override`) vào `daily_votes.price`/`ship_fee`, tính `cost_per_person`, cập nhật bảng. Im lặng (không gửi tin) |
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
+| 15:00 | T6 | **`friday_settle`**: áp giá/ship admin nhập tay (`price_override`/`ship_fee_override`) vào `daily_votes.price`/`ship_fee`, tính `cost_per_person`, cập nhật bảng. Im lặng (không gửi tin) |
 
 Mọi ngày T2–T5 đều tạo vote từ 19:00 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc 08:30 sáng T6 (không tạo tối T5, không digest tối T5). Job 08:30
 là lưới an toàn cho T2–T5 (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và là job chính cho T6.
@@ -110,6 +110,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Công thức: `price + round(ship_fee / voter_count)` cho mỗi ngày
 - Mặc định: 45,000đ + 20,000đ ship chia đều số người vote
 - Cả `/summary` bot và web dashboard dùng cùng công thức (`get_monthly_summary` và `get_monthly_detail`)
+- Riêng T6 (bún đậu): KHÔNG tính tiền lúc 10:30; job `friday_settle` 15:00 mới áp giá admin (`price_override`/`ship_fee_override`) vào `daily_votes.price`/`ship_fee` rồi tính `cost_per_person`, cập nhật bảng
 
 ### Security (web login)
 - Timing-safe: `hmac.compare_digest`
@@ -126,7 +127,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 ## Conventions
 - Web và bot dùng chung SQLite — không conflict nhờ WAL mode
 - Admin check: `user_id in config.ADMIN_IDS`
-- `close_daily_vote()`: đóng + chọn picker/returner (dùng lúc 10:30)
+- `close_daily_vote()`: đóng + chọn người (dùng lúc 10:30). T2–T5: picker + returner; T6 (bún đậu): chỉ picker (returner = None)
 - `set_vote_closed()`: chỉ đóng, chưa chọn người (dùng trong announce_roles lúc 10:30)
 - Web cần restart uvicorn sau khi sửa code Python
 
