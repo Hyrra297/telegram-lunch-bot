@@ -114,9 +114,10 @@ async def test_save_menu_items_with_price_override(web_app, admin_cookie):
     assert dv["ship_fee_override"] == 0
 
 
-async def test_save_menu_items_empty_price_no_override(web_app, admin_cookie):
+async def test_save_menu_items_empty_price_clears_override(web_app, admin_cookie):
     import database as db_mod
     await db_mod.init_db()
+    await db_mod.set_day_price("2026-01-05", 30000, 0)   # pre-existing override
     async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
         resp = await client.post("/save-menu-items", data={
             "date": "2026-01-05", "dish1": "Cơm gà", "price": "", "ship_fee": "",

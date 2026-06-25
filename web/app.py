@@ -92,6 +92,12 @@ def _current_week_dates() -> list:
     return [(monday + timedelta(days=i)).isoformat() for i in range(5)]
 
 
+def _parse_int(s: str):
+    """Chuỗi số nguyên dương → int; rỗng/không phải số → None (bỏ override)."""
+    s = s.strip()
+    return int(s) if s.isdigit() else None
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -203,11 +209,6 @@ async def save_menu_items_endpoint(
         return JSONResponse({"ok": False, "error": "Không có quyền"}, status_code=403)
     dishes = [d.strip() for d in [dish1, dish2, dish3, dish4] if d.strip()]
     await db.save_menu_items(date, dishes)
-
-    def _parse_int(s: str):
-        s = s.strip()
-        return int(s) if s.isdigit() else None
-
     await db.set_day_price(date, _parse_int(price), _parse_int(ship_fee))
     return JSONResponse({"ok": True})
 
