@@ -60,6 +60,8 @@ async def init_db() -> None:
             "ALTER TABLE users ADD COLUMN last_returned_at TEXT",
             "ALTER TABLE daily_votes ADD COLUMN returner_user_id INTEGER",
             "ALTER TABLE daily_votes ADD COLUMN cost_per_person INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN price_override INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN ship_fee_override INTEGER",
         ]:
             try:
                 await db.execute(col_sql)
@@ -264,6 +266,21 @@ async def set_menu_image(date: str, filename: str) -> None:
         await db.execute(
             "UPDATE daily_votes SET menu_image = ? WHERE date = ?",
             (filename, date),
+        )
+        await db.commit()
+
+
+async def set_day_price(date: str, price_override: Optional[int], ship_fee_override: Optional[int]) -> None:
+    """Lưu giá/ship admin nhập tay cho 1 ngày (override). None = bỏ override, dùng giá toàn cục."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Tạo placeholder row nếu chưa có (price/ship_fee dùng default cột)
+        await db.execute(
+            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')",
+            (date,),
+        )
+        await db.execute(
+            "UPDATE daily_votes SET price_override = ?, ship_fee_override = ? WHERE date = ?",
+            (price_override, ship_fee_override, date),
         )
         await db.commit()
 
@@ -638,6 +655,8 @@ async def get_week_data(week_dates: list) -> list:
                     "voters": [],
                     "picker_name": None,
                     "menu_image": None,
+                    "price_override": None,
+                    "ship_fee_override": None,
                 })
                 continue
 
@@ -670,6 +689,8 @@ async def get_week_data(week_dates: list) -> list:
                 "voters": voters,
                 "picker_name": picker_name,
                 "menu_image": dv["menu_image"],
+                "price_override": dv["price_override"],
+                "ship_fee_override": dv["ship_fee_override"],
             })
 
     return results

@@ -262,3 +262,29 @@ async def test_is_voter(db):
     assert await db.is_voter("2026-06-03", 1) is True
     await db.toggle_vote("2026-06-03", 1)  # bỏ vote
     assert await db.is_voter("2026-06-03", 1) is False
+
+
+class TestDayPrice:
+    async def test_set_day_price_stores_override(self, db):
+        await db.set_day_price("2026-01-02", 30000, 0)
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["price_override"] == 30000
+        assert dv["ship_fee_override"] == 0
+
+    async def test_set_day_price_none_clears(self, db):
+        await db.set_day_price("2026-01-02", 30000, 0)
+        await db.set_day_price("2026-01-02", None, None)
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["price_override"] is None
+        assert dv["ship_fee_override"] is None
+
+    async def test_get_week_data_includes_override(self, db):
+        await db.set_day_price("2026-01-02", 30000, 0)
+        rows = await db.get_week_data(["2026-01-02"])
+        assert rows[0]["price_override"] == 30000
+        assert rows[0]["ship_fee_override"] == 0
+
+    async def test_get_week_data_no_row_override_none(self, db):
+        rows = await db.get_week_data(["2026-01-02"])
+        assert rows[0]["price_override"] is None
+        assert rows[0]["ship_fee_override"] is None
