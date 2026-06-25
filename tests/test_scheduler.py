@@ -87,18 +87,16 @@ class TestScheduledOpenVote:
         assert daily is not None
         assert daily["status"] == "open"
 
-    async def test_offset_one_uses_ngay_mai_wording(self, db):
-        from scheduler import _scheduled_open_vote, _target_date, _is_friday
-        tomorrow = _target_date(1)
-        await db.set_menu_image(tomorrow, "menu.jpg")
+    async def test_offset_one_uses_ngay_mai_wording(self, db, monkeypatch):
+        import scheduler
+        # Pin ngày đích là thứ 2 (không phải thứ 6) để luôn kiểm tra wording "ngày mai"
+        monday = "2026-01-05"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: monday)
+        await db.set_menu_image(monday, "menu.jpg")
         app = FakeApp()
-        await _scheduled_open_vote(app, day_offset=1)
-        # Không có món ăn → fallback inline keyboard
-        # Nếu ngày mai là thứ 6 → wording bún đậu ("hôm nay"); còn lại → "ngày mai"
-        if _is_friday(tomorrow):
-            assert any("Đặt cơm hôm nay" in m for m in app.bot.sent_messages)
-        else:
-            assert any("Đặt cơm ngày mai" in m for m in app.bot.sent_messages)
+        await scheduler._scheduled_open_vote(app, day_offset=1)
+        # Không có món ăn → fallback inline keyboard, text dùng "ngày mai"
+        assert any("Đặt cơm ngày mai" in m for m in app.bot.sent_messages)
 
     async def test_offset_zero_uses_hom_nay_wording(self, db):
         from scheduler import _scheduled_open_vote, _target_date
@@ -117,19 +115,17 @@ class TestScheduledOpenVote:
         assert app.bot.sent_messages == []
         assert app.bot.sent_polls == []
 
-    async def test_offset_one_poll_uses_ngay_mai_question(self, db):
-        from scheduler import _scheduled_open_vote, _target_date, _is_friday
-        tomorrow = _target_date(1)
-        await db.set_menu_image(tomorrow, "menu.jpg")
-        await db.save_menu_items(tomorrow, ["Cơm gà", "Bún bò"])
+    async def test_offset_one_poll_uses_ngay_mai_question(self, db, monkeypatch):
+        import scheduler
+        # Pin ngày đích là thứ 2 (không phải thứ 6) để luôn kiểm tra question "ngày mai"
+        monday = "2026-01-05"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: monday)
+        await db.set_menu_image(monday, "menu.jpg")
+        await db.save_menu_items(monday, ["Cơm gà", "Bún bò"])
         app = FakeApp()
-        await _scheduled_open_vote(app, day_offset=1)
+        await scheduler._scheduled_open_vote(app, day_offset=1)
         assert len(app.bot.sent_polls) == 1
-        # Nếu ngày mai là thứ 6 → poll question bún đậu; còn lại → ngày mai
-        if _is_friday(tomorrow):
-            assert app.bot.sent_polls[0]["question"] == "🥢 Hôm nay ăn bún đậu gì?"
-        else:
-            assert app.bot.sent_polls[0]["question"] == "🍱 Ngày mai ăn gì?"
+        assert app.bot.sent_polls[0]["question"] == "🍱 Ngày mai ăn gì?"
         assert app.bot.sent_polls[0]["options"] == ["Cơm gà", "Bún bò"]
 
     async def test_no_menu_image_skips_and_notifies(self, db):
