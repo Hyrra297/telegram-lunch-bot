@@ -67,6 +67,12 @@ class FakeBot:
     async def send_photo(self, chat_id, photo, caption=None, **kwargs):
         self.sent_photos.append(caption)
 
+    async def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, **kwargs):
+        pass
+
+    async def stop_poll(self, chat_id, message_id, **kwargs):
+        pass
+
 
 class FakeApp:
     def __init__(self):
@@ -283,3 +289,43 @@ class TestFridayWording:
         from scheduler import _open_vote_wording
         w = _open_vote_wording(0)  # backward-compat: không truyền date
         assert w["caption"] == "🍽️ Thực đơn hôm nay"
+
+
+class TestAnnounceRoles:
+    async def _setup_two_voters(self, db, date):
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 20000)  # status='open'
+        await db.toggle_vote(date, 1)
+        await db.toggle_vote(date, 2)
+
+    async def test_friday_only_picker_no_returner(self, db):
+        from scheduler import _scheduled_announce_roles
+        friday = "2026-01-02"
+        await self._setup_two_voters(db, friday)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=friday)
+
+        daily = await db.get_daily_vote(friday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is not None
+        assert daily["returner_user_id"] is None
+        # Thứ 6: KHÔNG tính tiền lúc 10h30 (đợi job 15h)
+        assert daily["cost_per_person"] is None
+        joined = " ".join(app.bot.sent_messages)
+        assert "đi lấy bún đậu" in joined
+        assert "trả hộp" not in joined
+
+    async def test_non_friday_assigns_returner(self, db):
+        from scheduler import _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup_two_voters(db, monday)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=monday)
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["returner_user_id"] is not None
+        # Ngày thường: vẫn tính tiền lúc 10h30
+        assert daily["cost_per_person"] is not None
+        joined = " ".join(app.bot.sent_messages)
+        assert "trả hộp" in joined

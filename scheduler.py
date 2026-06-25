@@ -145,10 +145,11 @@ async def _scheduled_morning(app: Application) -> None:
         logger.exception("❌ morning job failed for %s", today)
 
 
-async def _scheduled_announce_roles(app: Application) -> None:
-    """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp."""
-    from datetime import datetime
-    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+async def _scheduled_announce_roles(app: Application, today: str | None = None) -> None:
+    """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp.
+    Thứ 6 (bún đậu): chỉ chọn 1 người đi lấy, không trả hộp."""
+    if today is None:
+        today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     logger.info("⏰ Scheduler: announce_roles triggered for %s", today)
 
     try:
@@ -202,32 +203,38 @@ async def _scheduled_announce_roles(app: Application) -> None:
             )
             return
 
-        picker = await db.pick_next_fetcher(today)
-        returner = await db.pick_next_returner(today, picker["id"])
-        await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
-
         def _esc(s: str) -> str:
             return s.replace("_", "\\_")
 
+        picker = await db.pick_next_fetcher(today)
         picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
-        if returner and returner["id"] != picker["id"]:
-            returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
-            roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
-        else:
-            roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
 
-        # Tính chi phí mỗi người
-        price = daily.get("price") or config.PRICE_PER_MEAL
-        ship_fee = daily.get("ship_fee") or config.SHIP_FEE
-        cost_per_person = price + round(ship_fee / len(voters))
-        await db.set_cost_per_person(today, cost_per_person)
+        if _is_friday(today):
+            # Ngày bún đậu: chỉ 1 người đi lấy, không trả hộp
+            await db.close_daily_vote(today, picker["id"], None)
+            roles_text = f"🛵 {picker_mention} đi lấy bún đậu"
+        else:
+            returner = await db.pick_next_returner(today, picker["id"])
+            await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
+            if returner and returner["id"] != picker["id"]:
+                returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
+                roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
+            else:
+                roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
+
+        # Tính chi phí mỗi người — thứ 6 (bún đậu) đợi job 15h, KHÔNG tính lúc 10h30
+        if not _is_friday(today):
+            price = daily.get("price") or config.PRICE_PER_MEAL
+            ship_fee = daily.get("ship_fee") or config.SHIP_FEE
+            cost_per_person = price + round(ship_fee / len(voters))
+            await db.set_cost_per_person(today, cost_per_person)
 
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
             text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
             parse_mode="Markdown",
         )
-        logger.info("✅ Roles assigned for %s, picker=%s, cost=%s", today, picker["username"], cost_per_person)
+        logger.info("✅ Roles assigned for %s, picker=%s", today, picker["username"])
     except Exception:
         logger.exception("❌ announce_roles failed for %s", today)
 
