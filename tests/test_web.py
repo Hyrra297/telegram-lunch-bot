@@ -32,6 +32,16 @@ def admin_cookie(web_app):
     return {"admin_token": token}
 
 
+# ── Index (smoke) ─────────────────────────────────────────────────────────────
+
+async def test_index_renders_ok(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    assert resp.status_code == 200
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 async def test_health(web_app):
@@ -85,6 +95,36 @@ async def test_save_menu_items_success(web_app, admin_cookie):
     items = await db_mod.get_menu_items("2026-03-10")
     assert "Bún bò" in items
     assert "Cơm gà" in items
+
+
+async def test_save_menu_items_with_price_override(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/save-menu-items", data={
+            "date": "2026-01-02",
+            "dish1": "Bún đậu mắm tôm",
+            "price": "40000",
+            "ship_fee": "0",
+        })
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    dv = await db_mod.get_daily_vote("2026-01-02")
+    assert dv["price_override"] == 40000
+    assert dv["ship_fee_override"] == 0
+
+
+async def test_save_menu_items_empty_price_no_override(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/save-menu-items", data={
+            "date": "2026-01-05", "dish1": "Cơm gà", "price": "", "ship_fee": "",
+        })
+    assert resp.status_code == 200
+    dv = await db_mod.get_daily_vote("2026-01-05")
+    assert dv["price_override"] is None
+    assert dv["ship_fee_override"] is None
 
 
 # ── Toggle paid ───────────────────────────────────────────────────────────────

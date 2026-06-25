@@ -196,11 +196,19 @@ async def save_menu_items_endpoint(
     dish2: str = Form(""),
     dish3: str = Form(""),
     dish4: str = Form(""),
+    price: str = Form(""),
+    ship_fee: str = Form(""),
 ):
     if not _is_admin(request):
         return JSONResponse({"ok": False, "error": "Không có quyền"}, status_code=403)
     dishes = [d.strip() for d in [dish1, dish2, dish3, dish4] if d.strip()]
     await db.save_menu_items(date, dishes)
+
+    def _parse_int(s: str):
+        s = s.strip()
+        return int(s) if s.isdigit() else None
+
+    await db.set_day_price(date, _parse_int(price), _parse_int(ship_fee))
     return JSONResponse({"ok": True})
 
 
