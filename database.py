@@ -845,12 +845,17 @@ async def snapshot_day_costs(date: str) -> int:
             return 0
         count = len(entries)
         ship = dv["ship_fee"] or 0
-        price_by_dish = {
-            dv["dish1"]: dv["dish1_price"],
-            dv["dish2"]: dv["dish2_price"],
-            dv["dish3"]: dv["dish3_price"],
-            dv["dish4"]: dv["dish4_price"],
-        }
+        # Khớp giá theo món, ưu tiên slot ĐẦU (giống SQL CASE), bỏ qua tên None.
+        # Gán dish4→dish1 để dish1 ghi sau cùng → thắng khi trùng tên.
+        price_by_dish = {}
+        for _name, _price in (
+            (dv["dish4"], dv["dish4_price"]),
+            (dv["dish3"], dv["dish3_price"]),
+            (dv["dish2"], dv["dish2_price"]),
+            (dv["dish1"], dv["dish1_price"]),
+        ):
+            if _name is not None:
+                price_by_dish[_name] = _price
         for e in entries:
             dp = price_by_dish.get(e["dish"])
             unit = dp if dp is not None else dv["price"]

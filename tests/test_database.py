@@ -341,6 +341,19 @@ class TestSnapshotDayCosts:
         await db.set_vote_closed(date)
         assert await db.snapshot_day_costs(date) == 0
 
+    async def test_snapshot_matches_live_on_duplicate_names(self, db):
+        date = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(date, 100, 45000, 0)   # ship 0
+        await db.save_menu_items(date, ["X", "X"])         # trùng tên
+        await db.set_day_dish_prices(date, [30000, 60000]) # dish1=30k, dish2=60k
+        await db.vote_for_dish(date, 1, "X")
+        await db.set_vote_closed(date)
+        live = {r["full_name"]: r["total"] for r in await db.get_monthly_summary("2026-01")}["An"]
+        await db.snapshot_day_costs(date)
+        locked = {r["full_name"]: r["total"] for r in await db.get_monthly_summary("2026-01")}["An"]
+        assert live == locked == 30000   # SQL CASE khớp slot đầu (dish1=30000)
+
 
 class TestWeekDataDishPrices:
     async def test_week_data_includes_dish_prices_and_ship(self, db):

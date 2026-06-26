@@ -108,6 +108,7 @@ async def test_save_menu_items_with_dish_prices(web_app, admin_cookie):
             "ship_fee": "10000",
         })
     assert resp.status_code == 200
+    assert resp.json()["ok"] is True
     dv = await db_mod.get_daily_vote("2026-01-02")
     assert dv["dish1_price"] == 35000
     assert dv["dish2_price"] == 50000
