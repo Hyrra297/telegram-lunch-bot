@@ -397,3 +397,55 @@ class TestFridaySettle:
         app = FakeApp()
         await _scheduled_friday_settle(app, today=monday)
         assert await self._cost(db, monday, 1) is None  # không chốt ngày thường
+
+
+class TestFridayTemplateOpenVote:
+    async def test_friday_applies_default_template(self, db, monkeypatch):
+        import json, scheduler
+        friday = "2026-01-02"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: friday)
+        tpl = {"dishes": ["Bún đậu(35k)", "Bún đậu(40k)"], "prices": [35000, 40000],
+               "ship_fee": 20000, "menu_image": "fri.jpg"}
+        await db.set_setting("friday_template", json.dumps(tpl))
+        app = FakeApp()
+        await scheduler._scheduled_open_vote(app, day_offset=0)
+        assert len(app.bot.sent_polls) == 1
+        assert app.bot.sent_polls[0]["options"] == ["Bún đậu(35k)", "Bún đậu(40k)"]
+        daily = await db.get_daily_vote(friday)
+        assert daily["status"] == "open"
+        assert daily["dish1_price"] == 35000
+
+    async def test_friday_keeps_admin_menu(self, db, monkeypatch):
+        import json, scheduler
+        friday = "2026-01-02"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: friday)
+        await db.set_setting("friday_template", json.dumps(
+            {"dishes": ["Template món"], "prices": [99000], "ship_fee": 20000, "menu_image": "fri.jpg"}))
+        await db.save_menu_items(friday, ["Món admin"])
+        await db.set_menu_image(friday, "admin.jpg")
+        app = FakeApp()
+        await scheduler._scheduled_open_vote(app, day_offset=0)
+        assert app.bot.sent_polls[0]["options"] == ["Món admin"]  # template KHÔNG áp
+
+    async def test_non_friday_ignores_template(self, db, monkeypatch):
+        import json, scheduler
+        monday = "2026-01-05"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: monday)
+        await db.set_setting("friday_template", json.dumps(
+            {"dishes": ["X"], "prices": [1], "ship_fee": 0, "menu_image": "fri.jpg"}))
+        await db.set_menu_image(monday, "menu.jpg")
+        app = FakeApp()
+        await scheduler._scheduled_open_vote(app, day_offset=0)
+        assert await db.get_menu_items(monday) == []   # template không áp cho thứ 2
+        assert app.bot.sent_polls == []   # ngày thường không có món → không phải poll template
+
+    async def test_friday_template_ship_survives(self, db, monkeypatch):
+        import json, scheduler
+        friday = "2026-01-02"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: friday)
+        tpl = {"dishes": ["A"], "prices": [35000], "ship_fee": 10000, "menu_image": "fri.jpg"}
+        await db.set_setting("friday_template", json.dumps(tpl))
+        app = FakeApp()
+        await scheduler._scheduled_open_vote(app, day_offset=0)
+        daily = await db.get_daily_vote(friday)
+        assert daily["ship_fee"] == 10000   # ship template KHÔNG bị giá toàn cục (20000) ghi đè

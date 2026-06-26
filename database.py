@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import date as dt_date
 from typing import Optional
+import json
 import aiosqlite
 from config import DB_PATH
 
@@ -299,6 +300,33 @@ async def set_day_ship(date: str, ship_fee: int) -> None:
             "UPDATE daily_votes SET ship_fee=? WHERE date=?", (ship_fee, date),
         )
         await db.commit()
+
+
+async def apply_friday_template(date: str) -> bool:
+    """Áp menu bún đậu mặc định (settings.friday_template, JSON) vào `date`.
+    Chỉ áp khi ngày đó CHƯA có món (admin override thắng).
+    Trả True nếu đã áp; False nếu thiếu template / JSON lỗi / đã có món."""
+    raw = await get_setting("friday_template")
+    if not raw:
+        return False
+    try:
+        tpl = json.loads(raw)
+    except (ValueError, TypeError):
+        return False
+    dishes = tpl.get("dishes") or []
+    if not dishes:
+        return False
+    if await get_menu_items(date):
+        return False  # admin đã set món → không ghi đè
+    await save_menu_items(date, dishes)
+    await set_day_dish_prices(date, tpl.get("prices") or [])
+    ship = tpl.get("ship_fee")
+    if ship is not None:
+        await set_day_ship(date, int(ship))
+    image = tpl.get("menu_image")
+    if image:
+        await set_menu_image(date, image)
+    return True
 
 
 # ── Vote entries ──────────────────────────────────────────────────────────────

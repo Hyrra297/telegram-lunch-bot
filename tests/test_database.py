@@ -463,3 +463,36 @@ class TestSummaryPerDish:
         amounts = {m["full_name"]: m["votes"].get(date) for m in detail["members"]}
         assert amounts["An"] == 45000 + round(20000 / 2)   # 55000
         assert amounts["Binh"] == 55000
+
+
+class TestFridayTemplate:
+    async def test_applies_when_no_dishes(self, db):
+        import json
+        tpl = {"dishes": ["A", "B"], "prices": [35000, 40000], "ship_fee": 20000, "menu_image": "fri.jpg"}
+        await db.set_setting("friday_template", json.dumps(tpl))
+        applied = await db.apply_friday_template("2026-01-02")
+        assert applied is True
+        assert await db.get_menu_items("2026-01-02") == ["A", "B"]
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["dish1_price"] == 35000
+        assert dv["dish2_price"] == 40000
+        assert dv["ship_fee"] == 20000
+        assert dv["menu_image"] == "fri.jpg"
+
+    async def test_skips_when_dishes_exist(self, db):
+        import json
+        await db.set_setting("friday_template", json.dumps(
+            {"dishes": ["A"], "prices": [1], "ship_fee": 0, "menu_image": "fri.jpg"}))
+        await db.save_menu_items("2026-01-02", ["Món tay"])
+        applied = await db.apply_friday_template("2026-01-02")
+        assert applied is False
+        assert await db.get_menu_items("2026-01-02") == ["Món tay"]
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["ship_fee"] == 20000   # template ship=0 KHÔNG được áp (giữ default)
+
+    async def test_returns_false_when_no_template(self, db):
+        assert await db.apply_friday_template("2026-01-02") is False
+
+    async def test_returns_false_when_bad_json(self, db):
+        await db.set_setting("friday_template", "{not json")
+        assert await db.apply_friday_template("2026-01-02") is False
