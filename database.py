@@ -832,14 +832,15 @@ async def get_voters_with_dish(date: str) -> list:
 
 async def snapshot_day_costs(date: str) -> int:
     """Chốt khoá: tính & ghi cost mỗi người (giá món + ship/count) vào vote_entries.cost.
-    Trả số người đã chốt."""
+    KHÔNG ghi đè ô cost đã có sẵn (chốt tay / đã chốt trước) — chỉ điền ô còn trống.
+    Trả số người vừa được chốt (mới khoá)."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM daily_votes WHERE date=?", (date,)) as cur:
             dv = await cur.fetchone()
         if not dv:
             return 0
-        async with db.execute("SELECT user_id, dish FROM vote_entries WHERE date=?", (date,)) as cur:
+        async with db.execute("SELECT user_id, dish, cost FROM vote_entries WHERE date=?", (date,)) as cur:
             entries = [dict(r) for r in await cur.fetchall()]
         if not entries:
             return 0
@@ -856,7 +857,10 @@ async def snapshot_day_costs(date: str) -> int:
         ):
             if _name is not None:
                 price_by_dish[_name] = _price
+        locked = 0
         for e in entries:
+            if e["cost"] is not None:
+                continue  # đã khoá (chốt tay / đã chốt) → giữ nguyên, không ghi đè
             dp = price_by_dish.get(e["dish"])
             unit = dp if dp is not None else dv["price"]
             cost = unit + round(ship / count)
@@ -864,5 +868,6 @@ async def snapshot_day_costs(date: str) -> int:
                 "UPDATE vote_entries SET cost=? WHERE date=? AND user_id=?",
                 (cost, date, e["user_id"]),
             )
+            locked += 1
         await db.commit()
-        return count
+        return locked

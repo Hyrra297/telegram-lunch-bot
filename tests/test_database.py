@@ -341,6 +341,26 @@ class TestSnapshotDayCosts:
         await db.set_vote_closed(date)
         assert await db.snapshot_day_costs(date) == 0
 
+    async def test_snapshot_keeps_manual_cost(self, db):
+        """Ô cost đã khoá tay không bị ghi đè; chỉ điền ô còn trống."""
+        date = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 0)
+        await db.save_menu_items(date, ["X"])
+        await db.set_day_dish_prices(date, [30000])
+        await db.vote_for_dish(date, 1, "X")
+        await db.vote_for_dish(date, 2, "X")
+        await db.set_vote_closed(date)
+        import aiosqlite
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            await conn.execute("UPDATE vote_entries SET cost=? WHERE date=? AND user_id=?", (99999, date, 1))
+            await conn.commit()
+        n = await db.snapshot_day_costs(date)
+        assert n == 1                                  # chỉ khoá ô còn trống (user 2)
+        assert await self._cost(db, date, 1) == 99999  # số khoá tay giữ nguyên
+        assert await self._cost(db, date, 2) == 30000  # 30000 + round(0/2)
+
     async def test_snapshot_matches_live_on_duplicate_names(self, db):
         date = "2026-01-02"
         await db.add_user(1, "An", "an")
