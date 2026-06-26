@@ -275,21 +275,6 @@ async def set_menu_image(date: str, filename: str) -> None:
         await db.commit()
 
 
-async def set_day_price(date: str, price_override: Optional[int], ship_fee_override: Optional[int]) -> None:
-    """Lưu giá/ship admin nhập tay cho 1 ngày (override). None = bỏ override, dùng giá toàn cục."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Tạo placeholder row nếu chưa có (price/ship_fee dùng default cột)
-        await db.execute(
-            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')",
-            (date,),
-        )
-        await db.execute(
-            "UPDATE daily_votes SET price_override = ?, ship_fee_override = ? WHERE date = ?",
-            (price_override, ship_fee_override, date),
-        )
-        await db.commit()
-
-
 async def set_day_dish_prices(date: str, prices: list) -> None:
     """Lưu giá cho từng món (positional dish1_price..dish4_price). None = không có giá."""
     p = (list(prices) + [None, None, None, None])[:4]
@@ -312,16 +297,6 @@ async def set_day_ship(date: str, ship_fee: int) -> None:
         )
         await db.execute(
             "UPDATE daily_votes SET ship_fee=? WHERE date=?", (ship_fee, date),
-        )
-        await db.commit()
-
-
-async def set_day_actual_price(date: str, price: int, ship_fee: int) -> None:
-    """Ghi giá/ship thực tế (đã chốt) vào daily_votes — bảng tổng kết đọc live từ đây."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE daily_votes SET price = ?, ship_fee = ? WHERE date = ?",
-            (price, ship_fee, date),
         )
         await db.commit()
 

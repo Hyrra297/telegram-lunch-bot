@@ -36,7 +36,7 @@ python bot.py
 | 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền |
 | 10:30 | T6 | Đóng vote + **chỉ phân công 1 picker** đi lấy bún đậu (`🛵 @X đi lấy bún đậu`). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
-| 15:00 | T6 | **`friday_settle`**: áp giá/ship admin nhập tay (`price_override`/`ship_fee_override`) vào `daily_votes.price`/`ship_fee`, tính `cost_per_person`, cập nhật bảng. Im lặng (không gửi tin) |
+| 15:00 | T6 | **`friday_settle`**: gọi `snapshot_day_costs(date)` — tính và khoá tiền từng người vào `vote_entries.cost` (mỗi người = giá món + ship/số người). Im lặng (không gửi tin) |
 
 Mọi ngày T2–T5 đều tạo vote từ 19:00 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc 08:30 sáng T6 (không tạo tối T5, không digest tối T5). Job 08:30
 là lưới an toàn cho T2–T5 (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và là job chính cho T6.
@@ -46,7 +46,7 @@ khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm tr
 báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers/vote.py`
 (so giờ với `ADMIN_DIGEST_TIME` của tối hôm trước); mẫu tin trong `admin_notify.py`.
 
-**Giá bún đậu T6**: admin nhập `price_override`/`ship_fee_override` trực tiếp trong web tab "Tuần này" (ô giá/ship riêng cho T6). Job `friday_settle` lúc 15:00 mới áp giá đó vào bảng.
+**Giá bún đậu T6 (giá theo món)**: admin nhập **giá từng món** (`dish1_price`..`dish4_price`) và **ship** trực tiếp trong web tab "Tuần này" (không còn ô "Giá/s" đơn giá). Job `friday_settle` lúc 15:00 gọi `snapshot_day_costs(date)` → khoá cost từng người vào `vote_entries.cost`. Trước 15h: tổng kết tính live (preview); sau 15h: đọc snapshot đã khoá. Công thức: `cost = giá_món_người_đó (hoặc daily_votes.price nếu không có giá món) + round(ship_fee / voter_count)`. Cột `price_override`/`ship_fee_override` còn trong DB nhưng không còn dùng.
 
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (20:00)
 
@@ -69,8 +69,9 @@ Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00),
 users            -- id, username, full_name, rotation_index, return_index, active
 daily_votes      -- date PK, status (open/closed/none), picker_user_id, returner_user_id,
                  --   dish1-4, poll_id, poll_message_id, price, ship_fee, menu_image,
-                 --   price_override (nullable), ship_fee_override (nullable)
-vote_entries     -- date+user_id PK, dish
+                 --   dish1_price..dish4_price (nullable, giá từng món T6),
+                 --   price_override/ship_fee_override (nullable, dormant — không dùng nữa)
+vote_entries     -- date+user_id PK, dish, cost (nullable — snapshot 15h T6)
 settings         -- key/value (price, ship_fee, open_time, close_time)
 monthly_payments -- year_month+user_id PK
 ```
@@ -107,10 +108,10 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Set status = 'closed' trong daily_votes, bỏ qua round-robin
 
 ### Tính tiền
-- Công thức: `price + round(ship_fee / voter_count)` cho mỗi ngày
-- Mặc định: 45,000đ + 20,000đ ship chia đều số người vote
-- Cả `/summary` bot và web dashboard dùng cùng công thức (`get_monthly_summary` và `get_monthly_detail`)
-- Riêng T6 (bún đậu): KHÔNG tính tiền lúc 10:30; job `friday_settle` 15:00 mới áp giá admin (`price_override`/`ship_fee_override`) vào `daily_votes.price`/`ship_fee` rồi tính `cost_per_person`, cập nhật bảng
+
+- **T2–T5 (cơm)**: `price + round(ship_fee / voter_count)` cho mỗi ngày. Mặc định: 45,000đ + 20,000đ ship chia đều số người vote.
+- **T6 (bún đậu) — giá theo món**: mỗi người trả theo món đã chọn. Công thức: `cost = dish_price_người_đó (hoặc daily_votes.price nếu không có giá món) + round(ship_fee / voter_count)`. Trước 15h: tổng kết tính live (preview); sau 15h: đọc `vote_entries.cost` đã khoá (snapshot). Job `friday_settle` 15:00 gọi `snapshot_day_costs(date)` để khoá. Admin nhập giá từng món + ship qua web tab "Tuần này".
+- Cả `/summary` bot và web dashboard dùng cùng công thức (`get_monthly_summary` và `get_monthly_detail`).
 
 ### Security (web login)
 - Timing-safe: `hmac.compare_digest`
