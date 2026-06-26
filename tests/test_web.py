@@ -97,35 +97,41 @@ async def test_save_menu_items_success(web_app, admin_cookie):
     assert "Cơm gà" in items
 
 
-async def test_save_menu_items_with_price_override(web_app, admin_cookie):
+async def test_save_menu_items_with_dish_prices(web_app, admin_cookie):
     import database as db_mod
     await db_mod.init_db()
     async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
         resp = await client.post("/save-menu-items", data={
             "date": "2026-01-02",
-            "dish1": "Bún đậu mắm tôm",
-            "price": "40000",
-            "ship_fee": "0",
+            "dish1": "Bún đậu thường", "price1": "35000",
+            "dish2": "Bún đậu đầy đủ", "price2": "50000",
+            "ship_fee": "10000",
         })
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
     dv = await db_mod.get_daily_vote("2026-01-02")
-    assert dv["price_override"] == 40000
-    assert dv["ship_fee_override"] == 0
+    assert dv["dish1_price"] == 35000
+    assert dv["dish2_price"] == 50000
+    assert dv["ship_fee"] == 10000
 
-
-async def test_save_menu_items_empty_price_clears_override(web_app, admin_cookie):
+async def test_save_menu_items_prices_align_after_empty_dish(web_app, admin_cookie):
+    # dish2 rỗng → dish3 dồn thành slot 2; giá phải dồn theo
     import database as db_mod
     await db_mod.init_db()
-    await db_mod.set_day_price("2026-01-05", 30000, 0)   # pre-existing override
     async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
         resp = await client.post("/save-menu-items", data={
-            "date": "2026-01-05", "dish1": "Cơm gà", "price": "", "ship_fee": "",
+            "date": "2026-01-02",
+            "dish1": "A", "price1": "10000",
+            "dish2": "", "price2": "",
+            "dish3": "C", "price3": "30000",
         })
     assert resp.status_code == 200
-    dv = await db_mod.get_daily_vote("2026-01-05")
-    assert dv["price_override"] is None
-    assert dv["ship_fee_override"] is None
+    dv = await db_mod.get_daily_vote("2026-01-02")
+    items = await db_mod.get_menu_items("2026-01-02")
+    assert items == ["A", "C"]
+    assert dv["dish1_price"] == 10000
+    assert dv["dish2_price"] == 30000   # giá của C dồn về slot 2 khớp tên
+    assert dv["dish3_price"] is None
 
 
 # ── Toggle paid ───────────────────────────────────────────────────────────────

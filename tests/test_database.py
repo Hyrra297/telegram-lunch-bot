@@ -264,27 +264,182 @@ async def test_is_voter(db):
     assert await db.is_voter("2026-06-03", 1) is False
 
 
-class TestDayPrice:
-    async def test_set_day_price_stores_override(self, db):
-        await db.set_day_price("2026-01-02", 30000, 0)
+class TestDayDishPrices:
+    async def test_set_dish_prices_stores_positional(self, db):
+        await db.save_menu_items("2026-01-02", ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices("2026-01-02", [35000, 50000])
         dv = await db.get_daily_vote("2026-01-02")
-        assert dv["price_override"] == 30000
-        assert dv["ship_fee_override"] == 0
+        assert dv["dish1_price"] == 35000
+        assert dv["dish2_price"] == 50000
+        assert dv["dish3_price"] is None
+        assert dv["dish4_price"] is None
 
-    async def test_set_day_price_none_clears(self, db):
-        await db.set_day_price("2026-01-02", 30000, 0)
-        await db.set_day_price("2026-01-02", None, None)
+    async def test_set_dish_prices_none_clears(self, db):
+        await db.set_day_dish_prices("2026-01-02", [35000, 50000])
+        await db.set_day_dish_prices("2026-01-02", [None, None])
         dv = await db.get_daily_vote("2026-01-02")
-        assert dv["price_override"] is None
-        assert dv["ship_fee_override"] is None
+        assert dv["dish1_price"] is None
+        assert dv["dish2_price"] is None
 
-    async def test_get_week_data_includes_override(self, db):
-        await db.set_day_price("2026-01-02", 30000, 0)
-        rows = await db.get_week_data(["2026-01-02"])
-        assert rows[0]["price_override"] == 30000
-        assert rows[0]["ship_fee_override"] == 0
+    async def test_set_day_ship_updates(self, db):
+        await db.set_day_ship("2026-01-02", 10000)
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["ship_fee"] == 10000
 
-    async def test_get_week_data_no_row_override_none(self, db):
+    async def test_vote_entries_cost_column_exists(self, db):
+        # cột cost nullable, mặc định NULL
+        await db.create_daily_vote("2026-01-02", 100, 45000, 20000)
+        await db.toggle_vote("2026-01-02", 1)
+        import aiosqlite
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            async with conn.execute("SELECT cost FROM vote_entries WHERE date=? AND user_id=?", ("2026-01-02", 1)) as cur:
+                row = await cur.fetchone()
+        assert row["cost"] is None
+
+
+class TestSnapshotDayCosts:
+    async def _setup(self, db, date):
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 0)   # price=45000 (fallback), ship=0
+        await db.save_menu_items(date, ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices(date, [35000, 50000])
+        await db.set_day_ship(date, 10000)                # ship 10k chia 2 = 5k
+        await db.vote_for_dish(date, 1, "Bún đậu thường")  # 35000 + 5000
+        await db.vote_for_dish(date, 2, "Bún đậu đầy đủ")  # 50000 + 5000
+        await db.set_vote_closed(date)
+
+    async def _cost(self, db, date, user_id):
+        import aiosqlite
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            async with conn.execute("SELECT cost FROM vote_entries WHERE date=? AND user_id=?", (date, user_id)) as cur:
+                row = await cur.fetchone()
+        return row[0]
+
+    async def test_snapshot_computes_per_dish(self, db):
+        date = "2026-01-02"
+        await self._setup(db, date)
+        n = await db.snapshot_day_costs(date)
+        assert n == 2
+        assert await self._cost(db, date, 1) == 40000   # 35000 + round(10000/2)
+        assert await self._cost(db, date, 2) == 55000   # 50000 + round(10000/2)
+
+    async def test_snapshot_fallback_when_no_dish_price(self, db):
+        date = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(date, 100, 45000, 0)
+        await db.save_menu_items(date, ["Món chưa có giá"])
+        await db.vote_for_dish(date, 1, "Món chưa có giá")
+        await db.set_vote_closed(date)
+        await db.snapshot_day_costs(date)
+        assert await self._cost(db, date, 1) == 45000   # fallback daily.price, ship 0
+
+    async def test_snapshot_no_voters_returns_zero(self, db):
+        date = "2026-01-02"
+        await db.create_daily_vote(date, 100, 45000, 0)
+        await db.set_vote_closed(date)
+        assert await db.snapshot_day_costs(date) == 0
+
+    async def test_snapshot_matches_live_on_duplicate_names(self, db):
+        date = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(date, 100, 45000, 0)   # ship 0
+        await db.save_menu_items(date, ["X", "X"])         # trùng tên
+        await db.set_day_dish_prices(date, [30000, 60000]) # dish1=30k, dish2=60k
+        await db.vote_for_dish(date, 1, "X")
+        await db.set_vote_closed(date)
+        live = {r["full_name"]: r["total"] for r in await db.get_monthly_summary("2026-01")}["An"]
+        await db.snapshot_day_costs(date)
+        locked = {r["full_name"]: r["total"] for r in await db.get_monthly_summary("2026-01")}["An"]
+        assert live == locked == 30000   # SQL CASE khớp slot đầu (dish1=30000)
+
+
+class TestWeekDataDishPrices:
+    async def test_week_data_includes_dish_prices_and_ship(self, db):
+        await db.save_menu_items("2026-01-02", ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices("2026-01-02", [35000, 50000])
+        await db.set_day_ship("2026-01-02", 10000)
         rows = await db.get_week_data(["2026-01-02"])
-        assert rows[0]["price_override"] is None
-        assert rows[0]["ship_fee_override"] is None
+        assert rows[0]["dish1_price"] == 35000
+        assert rows[0]["dish2_price"] == 50000
+        assert rows[0]["ship_fee"] == 10000
+        assert "price_override" not in rows[0]
+        assert rows[0]["dish3_price"] is None
+        assert rows[0]["dish4_price"] is None
+
+    async def test_week_data_no_row_dish_prices_none(self, db):
+        rows = await db.get_week_data(["2026-01-02"])
+        assert rows[0]["dish1_price"] is None
+        assert rows[0]["ship_fee"] is None
+        assert rows[0]["dish2_price"] is None
+        assert rows[0]["dish3_price"] is None
+        assert rows[0]["dish4_price"] is None
+        assert "price_override" not in rows[0]
+
+
+class TestSummaryPerDish:
+    async def _setup_bun_dau(self, db, date):
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 0)
+        await db.save_menu_items(date, ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices(date, [35000, 50000])
+        await db.set_day_ship(date, 10000)
+        await db.vote_for_dish(date, 1, "Bún đậu thường")
+        await db.vote_for_dish(date, 2, "Bún đậu đầy đủ")
+        await db.set_vote_closed(date)
+
+    async def test_summary_live_per_dish(self, db):
+        date = "2026-01-09"
+        await self._setup_bun_dau(db, date)
+        rows = await db.get_monthly_summary("2026-01")
+        by_name = {r["full_name"]: r["total"] for r in rows}
+        assert by_name["An"] == 40000   # 35000 + round(10000/2)
+        assert by_name["Binh"] == 55000  # 50000 + round(10000/2)
+
+    async def test_summary_uses_snapshot_when_locked(self, db):
+        date = "2026-01-09"
+        await self._setup_bun_dau(db, date)
+        await db.snapshot_day_costs(date)
+        # sửa giá món sau khi chốt — không được đổi tổng
+        await db.set_day_dish_prices(date, [99000, 99000])
+        rows = await db.get_monthly_summary("2026-01")
+        by_name = {r["full_name"]: r["total"] for r in rows}
+        assert by_name["An"] == 40000
+        assert by_name["Binh"] == 55000
+
+    async def test_detail_per_dish(self, db):
+        date = "2026-01-09"
+        await self._setup_bun_dau(db, date)
+        detail = await db.get_monthly_detail("2026-01")
+        amounts = {m["full_name"]: m["votes"].get(date) for m in detail["members"]}
+        assert amounts["An"] == 40000
+        assert amounts["Binh"] == 55000
+
+    async def test_summary_com_single_price_unchanged(self, db):
+        # ngày cơm thường: không nhập giá món → mỗi người = dv.price + ship/count
+        date = "2026-01-12"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 20000)
+        await db.toggle_vote(date, 1)
+        await db.toggle_vote(date, 2)
+        await db.set_vote_closed(date)
+        rows = await db.get_monthly_summary("2026-01")
+        by_name = {r["full_name"]: r["total"] for r in rows}
+        assert by_name["An"] == 45000 + round(20000 / 2)  # 55000
+        assert by_name["Binh"] == 55000
+
+    async def test_detail_com_single_price_unchanged(self, db):
+        date = "2026-01-12"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 20000)
+        await db.toggle_vote(date, 1)
+        await db.toggle_vote(date, 2)
+        await db.set_vote_closed(date)
+        detail = await db.get_monthly_detail("2026-01")
+        amounts = {m["full_name"]: m["votes"].get(date) for m in detail["members"]}
+        assert amounts["An"] == 45000 + round(20000 / 2)   # 55000
+        assert amounts["Binh"] == 55000

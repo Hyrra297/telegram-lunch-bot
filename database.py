@@ -62,6 +62,11 @@ async def init_db() -> None:
             "ALTER TABLE daily_votes ADD COLUMN cost_per_person INTEGER",
             "ALTER TABLE daily_votes ADD COLUMN price_override INTEGER",
             "ALTER TABLE daily_votes ADD COLUMN ship_fee_override INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish1_price INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish2_price INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish3_price INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish4_price INTEGER",
+            "ALTER TABLE vote_entries ADD COLUMN cost INTEGER",
         ]:
             try:
                 await db.execute(col_sql)
@@ -270,27 +275,28 @@ async def set_menu_image(date: str, filename: str) -> None:
         await db.commit()
 
 
-async def set_day_price(date: str, price_override: Optional[int], ship_fee_override: Optional[int]) -> None:
-    """Lưu giá/ship admin nhập tay cho 1 ngày (override). None = bỏ override, dùng giá toàn cục."""
+async def set_day_dish_prices(date: str, prices: list) -> None:
+    """Lưu giá cho từng món (positional dish1_price..dish4_price). None = không có giá."""
+    p = (list(prices) + [None, None, None, None])[:4]
     async with aiosqlite.connect(DB_PATH) as db:
-        # Tạo placeholder row nếu chưa có (price/ship_fee dùng default cột)
         await db.execute(
-            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')",
-            (date,),
+            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')", (date,),
         )
         await db.execute(
-            "UPDATE daily_votes SET price_override = ?, ship_fee_override = ? WHERE date = ?",
-            (price_override, ship_fee_override, date),
+            "UPDATE daily_votes SET dish1_price=?, dish2_price=?, dish3_price=?, dish4_price=? WHERE date=?",
+            (p[0], p[1], p[2], p[3], date),
         )
         await db.commit()
 
 
-async def set_day_actual_price(date: str, price: int, ship_fee: int) -> None:
-    """Ghi giá/ship thực tế (đã chốt) vào daily_votes — bảng tổng kết đọc live từ đây."""
+async def set_day_ship(date: str, ship_fee: int) -> None:
+    """Ghi ship/ngày thẳng vào daily_votes.ship_fee (bảng đọc live)."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE daily_votes SET price = ?, ship_fee = ? WHERE date = ?",
-            (price, ship_fee, date),
+            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')", (date,),
+        )
+        await db.execute(
+            "UPDATE daily_votes SET ship_fee=? WHERE date=?", (ship_fee, date),
         )
         await db.commit()
 
@@ -406,14 +412,22 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
     year_month: 'YYYY-MM'
     max_date:   'YYYY-MM-DD' upper bound (inclusive). If None, no upper bound.
     Returns list of {full_name, meal_count, price_per_meal, total}
-    Total = sum of (price + ship_fee/voter_count) per day — same formula as web dashboard.
+    Total = tổng tiền mỗi người/ngày: ve.cost nếu đã chốt, else (giá_món hoặc dv.price) + round(ship_fee/voter_count).
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         extra = " AND ve.date <= ?" if max_date else ""
         params = (f"{year_month}-%", max_date) if max_date else (f"{year_month}-%",)
         async with db.execute(
-            f"""SELECT u.id AS user_id, u.full_name, u.rotation_index, ve.date, dv.price, dv.ship_fee
+            f"""SELECT u.id AS user_id, u.full_name, u.rotation_index, ve.date, ve.cost,
+                      dv.price, dv.ship_fee,
+                      CASE ve.dish
+                          WHEN dv.dish1 THEN dv.dish1_price
+                          WHEN dv.dish2 THEN dv.dish2_price
+                          WHEN dv.dish3 THEN dv.dish3_price
+                          WHEN dv.dish4 THEN dv.dish4_price
+                          ELSE NULL
+                      END AS dish_price
                FROM users u
                JOIN vote_entries ve ON u.id = ve.user_id
                JOIN daily_votes dv  ON dv.date = ve.date
@@ -434,10 +448,15 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
         uid = e["user_id"]
         if uid not in totals:
             totals[uid] = {"user_id": uid, "full_name": e["full_name"], "meal_count": 0, "total": 0, "price_per_meal": e["price"]}
-        count = day_voter_counts[e["date"]]
-        ship = e.get("ship_fee") or 0
+        if e["cost"] is not None:
+            amount = e["cost"]
+        else:
+            count = day_voter_counts[e["date"]]
+            ship = e.get("ship_fee") or 0
+            unit = e["dish_price"] if e["dish_price"] is not None else e["price"]
+            amount = unit + round(ship / count)
         totals[uid]["meal_count"] += 1
-        totals[uid]["total"] += e["price"] + round(ship / count)
+        totals[uid]["total"] += amount
 
     return list(totals.values())
 
@@ -529,7 +548,15 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
         # All vote entries for those days
         placeholders = ",".join("?" * len(day_dates))
         async with db.execute(
-            f"""SELECT ve.user_id, u.full_name, u.rotation_index, ve.date, dv.price, dv.ship_fee
+            f"""SELECT ve.user_id, u.full_name, u.rotation_index, ve.date, ve.cost,
+                       dv.price, dv.ship_fee,
+                       CASE ve.dish
+                           WHEN dv.dish1 THEN dv.dish1_price
+                           WHEN dv.dish2 THEN dv.dish2_price
+                           WHEN dv.dish3 THEN dv.dish3_price
+                           WHEN dv.dish4 THEN dv.dish4_price
+                           ELSE NULL
+                       END AS dish_price
                 FROM vote_entries ve
                 JOIN users u ON u.id = ve.user_id
                 JOIN daily_votes dv ON dv.date = ve.date
@@ -554,9 +581,14 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
             member_order[name] = e["rotation_index"]
             member_user_ids[name] = e["user_id"]
             votes_map[name] = {}
-        count = day_voter_counts[e["date"]]
-        ship = e.get("ship_fee") or 0
-        votes_map[name][e["date"]] = e["price"] + round(ship / count)
+        if e["cost"] is not None:
+            amount = e["cost"]
+        else:
+            count = day_voter_counts[e["date"]]
+            ship = e.get("ship_fee") or 0
+            unit = e["dish_price"] if e["dish_price"] is not None else e["price"]
+            amount = unit + round(ship / count)
+        votes_map[name][e["date"]] = amount
 
     members = []
     for name in sorted(member_order, key=lambda n: member_order[n]):
@@ -665,8 +697,11 @@ async def get_week_data(week_dates: list) -> list:
                     "voters": [],
                     "picker_name": None,
                     "menu_image": None,
-                    "price_override": None,
-                    "ship_fee_override": None,
+                    "dish1_price": None,
+                    "dish2_price": None,
+                    "dish3_price": None,
+                    "dish4_price": None,
+                    "ship_fee": None,
                 })
                 continue
 
@@ -699,8 +734,11 @@ async def get_week_data(week_dates: list) -> list:
                 "voters": voters,
                 "picker_name": picker_name,
                 "menu_image": dv["menu_image"],
-                "price_override": dv["price_override"],
-                "ship_fee_override": dv["ship_fee_override"],
+                "dish1_price": dv["dish1_price"],
+                "dish2_price": dv["dish2_price"],
+                "dish3_price": dv["dish3_price"],
+                "dish4_price": dv["dish4_price"],
+                "ship_fee": dv["ship_fee"],
             })
 
     return results
@@ -790,3 +828,41 @@ async def get_voters_with_dish(date: str) -> list:
         ) as cur:
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
+
+
+async def snapshot_day_costs(date: str) -> int:
+    """Chốt khoá: tính & ghi cost mỗi người (giá món + ship/count) vào vote_entries.cost.
+    Trả số người đã chốt."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM daily_votes WHERE date=?", (date,)) as cur:
+            dv = await cur.fetchone()
+        if not dv:
+            return 0
+        async with db.execute("SELECT user_id, dish FROM vote_entries WHERE date=?", (date,)) as cur:
+            entries = [dict(r) for r in await cur.fetchall()]
+        if not entries:
+            return 0
+        count = len(entries)
+        ship = dv["ship_fee"] or 0
+        # Khớp giá theo món, ưu tiên slot ĐẦU (giống SQL CASE), bỏ qua tên None.
+        # Gán dish4→dish1 để dish1 ghi sau cùng → thắng khi trùng tên.
+        price_by_dish = {}
+        for _name, _price in (
+            (dv["dish4"], dv["dish4_price"]),
+            (dv["dish3"], dv["dish3_price"]),
+            (dv["dish2"], dv["dish2_price"]),
+            (dv["dish1"], dv["dish1_price"]),
+        ):
+            if _name is not None:
+                price_by_dish[_name] = _price
+        for e in entries:
+            dp = price_by_dish.get(e["dish"])
+            unit = dp if dp is not None else dv["price"]
+            cost = unit + round(ship / count)
+            await db.execute(
+                "UPDATE vote_entries SET cost=? WHERE date=? AND user_id=?",
+                (cost, date, e["user_id"]),
+            )
+        await db.commit()
+        return count
