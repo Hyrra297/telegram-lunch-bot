@@ -72,6 +72,10 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
         ship_fee_str = await db.get_setting("ship_fee") or str(config.SHIP_FEE)
         ship_fee = int(ship_fee_str)
 
+        # Thứ 6: dùng ship của ngày (template/admin đã set) thay vì ship toàn cục
+        if _is_friday(target_str) and existing and existing["ship_fee"] is not None:
+            ship_fee = existing["ship_fee"]
+
         # Bắt buộc có ảnh thực đơn mới tạo vote — thiếu thì báo riêng admin
         menu_image = existing["menu_image"] if existing else None
         if not menu_image:
