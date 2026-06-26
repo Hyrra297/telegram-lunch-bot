@@ -48,6 +48,8 @@ báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers
 
 **Giá bún đậu T6 (giá theo món)**: admin nhập **giá từng món** (`dish1_price`..`dish4_price`) và **ship** trực tiếp trong web tab "Tuần này" (không còn ô "Giá/s" đơn giá). Job `friday_settle` lúc 15:00 gọi `snapshot_day_costs(date)` → khoá cost từng người vào `vote_entries.cost`. Trước 15h: tổng kết tính live (preview); sau 15h: đọc snapshot đã khoá. Công thức: `cost = giá_món_người_đó (hoặc daily_votes.price nếu không có giá món) + round(ship_fee / voter_count)`. Cột `price_override`/`ship_fee_override` còn trong DB nhưng không còn dùng.
 
+**Template bún đậu mặc định**: Mỗi thứ 6 lúc 08:30, job morning gọi `db.apply_friday_template(date)` để tự áp menu bún đậu cố định — không cần admin làm gì. Template lưu ở `settings.friday_template` (JSON: `{"dishes": [...], "prices": [...], "ship_fee": int, "menu_image": "fri.jpg"}`). Hàm chỉ áp nếu ngày đó **chưa có món** — nếu admin đã set món khác qua web (override) hoặc dùng `/skip_today`, template không ghi đè. Để đổi menu bún đậu mặc định: cập nhật giá trị setting `friday_template` trong DB (không cần deploy lại). Ảnh dùng lại `fri.jpg` (upload một lần, tái sử dụng mỗi tuần).
+
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (20:00)
 
 ## Cấu trúc file quan trọng
