@@ -437,7 +437,7 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
     year_month: 'YYYY-MM'
     max_date:   'YYYY-MM-DD' upper bound (inclusive). If None, no upper bound.
     Returns list of {full_name, meal_count, price_per_meal, total}
-    Total = sum of (price + ship_fee/voter_count) per day — same formula as web dashboard.
+    Total = tổng tiền mỗi người/ngày: ve.cost nếu đã chốt, else (giá_món hoặc dv.price) + round(ship_fee/voter_count).
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

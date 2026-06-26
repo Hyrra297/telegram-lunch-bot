@@ -417,3 +417,16 @@ class TestSummaryPerDish:
         by_name = {r["full_name"]: r["total"] for r in rows}
         assert by_name["An"] == 45000 + round(20000 / 2)  # 55000
         assert by_name["Binh"] == 55000
+
+    async def test_detail_com_single_price_unchanged(self, db):
+        date = "2026-01-12"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 20000)
+        await db.toggle_vote(date, 1)
+        await db.toggle_vote(date, 2)
+        await db.set_vote_closed(date)
+        detail = await db.get_monthly_detail("2026-01")
+        amounts = {m["full_name"]: m["votes"].get(date) for m in detail["members"]}
+        assert amounts["An"] == 45000 + round(20000 / 2)   # 55000
+        assert amounts["Binh"] == 55000
