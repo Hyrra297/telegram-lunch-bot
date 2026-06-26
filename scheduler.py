@@ -60,6 +60,13 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
             logger.info("Vote already %s for %s, skipping.", existing["status"], target_str)
             return
 
+        # Thứ 6: áp menu bún đậu mặc định nếu chưa có món, rồi đọc lại
+        if _is_friday(target_str):
+            applied = await db.apply_friday_template(target_str)
+            if applied:
+                existing = await db.get_daily_vote(target_str)
+                logger.info("Áp menu bún đậu mặc định cho %s", target_str)
+
         price_str = await db.get_setting("price") or str(config.PRICE_PER_MEAL)
         price = int(price_str)
         ship_fee_str = await db.get_setting("ship_fee") or str(config.SHIP_FEE)
