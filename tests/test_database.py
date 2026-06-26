@@ -363,3 +363,57 @@ class TestWeekDataDishPrices:
         assert rows[0]["dish3_price"] is None
         assert rows[0]["dish4_price"] is None
         assert "price_override" not in rows[0]
+
+
+class TestSummaryPerDish:
+    async def _setup_bun_dau(self, db, date):
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 0)
+        await db.save_menu_items(date, ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices(date, [35000, 50000])
+        await db.set_day_ship(date, 10000)
+        await db.vote_for_dish(date, 1, "Bún đậu thường")
+        await db.vote_for_dish(date, 2, "Bún đậu đầy đủ")
+        await db.set_vote_closed(date)
+
+    async def test_summary_live_per_dish(self, db):
+        date = "2026-01-09"
+        await self._setup_bun_dau(db, date)
+        rows = await db.get_monthly_summary("2026-01")
+        by_name = {r["full_name"]: r["total"] for r in rows}
+        assert by_name["An"] == 40000   # 35000 + round(10000/2)
+        assert by_name["Binh"] == 55000  # 50000 + round(10000/2)
+
+    async def test_summary_uses_snapshot_when_locked(self, db):
+        date = "2026-01-09"
+        await self._setup_bun_dau(db, date)
+        await db.snapshot_day_costs(date)
+        # sửa giá món sau khi chốt — không được đổi tổng
+        await db.set_day_dish_prices(date, [99000, 99000])
+        rows = await db.get_monthly_summary("2026-01")
+        by_name = {r["full_name"]: r["total"] for r in rows}
+        assert by_name["An"] == 40000
+        assert by_name["Binh"] == 55000
+
+    async def test_detail_per_dish(self, db):
+        date = "2026-01-09"
+        await self._setup_bun_dau(db, date)
+        detail = await db.get_monthly_detail("2026-01")
+        amounts = {m["full_name"]: m["votes"].get(date) for m in detail["members"]}
+        assert amounts["An"] == 40000
+        assert amounts["Binh"] == 55000
+
+    async def test_summary_com_single_price_unchanged(self, db):
+        # ngày cơm thường: không nhập giá món → mỗi người = dv.price + ship/count
+        date = "2026-01-12"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 20000)
+        await db.toggle_vote(date, 1)
+        await db.toggle_vote(date, 2)
+        await db.set_vote_closed(date)
+        rows = await db.get_monthly_summary("2026-01")
+        by_name = {r["full_name"]: r["total"] for r in rows}
+        assert by_name["An"] == 45000 + round(20000 / 2)  # 55000
+        assert by_name["Binh"] == 55000
