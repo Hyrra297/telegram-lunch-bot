@@ -518,10 +518,12 @@
                    onchange="uploadMenu('{{ day.date }}', this)" />
           </label>
 
-          {# ── Dish + price form (admin only) ── #}
+          {# ── Dish form (admin only); giá/ship chỉ cho thứ 6 (bún đậu) ── #}
           {% set dishes = week_menu[day.date] %}
           <form style="margin-top:8px;display:flex;flex-direction:column;gap:6px"
                 onsubmit="saveMenuItems(event, '{{ day.date }}')">
+            {% if day.weekday == 'Thứ 6' %}
+            {# Thứ 6 (bún đậu): nhập giá từng món + ship #}
             <div style="display:grid;grid-template-columns:2fr 1fr;gap:6px">
               <input type="text" name="dish1" placeholder="Món 1" value="{{ dishes[0] }}"
                 style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
@@ -547,6 +549,23 @@
               style="align-self:flex-start;padding:6px 14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.82rem">
               💾 Lưu món + giá
             </button>
+            {% else %}
+            {# T2–T5 (cơm): chỉ nhập tên món; giá mặc định 45k + ship 20k #}
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <input type="text" name="dish1" placeholder="Món 1" value="{{ dishes[0] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish2" placeholder="Món 2" value="{{ dishes[1] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish3" placeholder="Món 3" value="{{ dishes[2] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish4" placeholder="Món 4" value="{{ dishes[3] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+            </div>
+            <button type="submit"
+              style="align-self:flex-start;padding:6px 14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.82rem">
+              💾 Lưu món
+            </button>
+            {% endif %}
           </form>
           {% endif %}
 

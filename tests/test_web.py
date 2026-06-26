@@ -42,6 +42,18 @@ async def test_index_renders_ok(web_app, admin_cookie):
     assert resp.status_code == 200
 
 
+async def test_price_inputs_only_on_friday(web_app, admin_cookie):
+    """Ô giá/ship chỉ hiện ở thứ 6 (bún đậu). Tuần luôn gồm T2–T6 → đúng 1 thứ 6."""
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    html = resp.text
+    assert html.count('name="dish1"') == 5     # cả 5 ngày đều có ô tên món
+    assert html.count('name="price1"') == 1    # chỉ thứ 6 có ô giá món
+    assert html.count('name="ship_fee"') == 1  # chỉ thứ 6 có ô ship
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 async def test_health(web_app):
