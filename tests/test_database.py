@@ -308,8 +308,14 @@ class TestWeekDataDishPrices:
         assert rows[0]["dish2_price"] == 50000
         assert rows[0]["ship_fee"] == 10000
         assert "price_override" not in rows[0]
+        assert rows[0]["dish3_price"] is None
+        assert rows[0]["dish4_price"] is None
 
     async def test_week_data_no_row_dish_prices_none(self, db):
         rows = await db.get_week_data(["2026-01-02"])
         assert rows[0]["dish1_price"] is None
         assert rows[0]["ship_fee"] is None
+        assert rows[0]["dish2_price"] is None
+        assert rows[0]["dish3_price"] is None
+        assert rows[0]["dish4_price"] is None
+        assert "price_override" not in rows[0]
