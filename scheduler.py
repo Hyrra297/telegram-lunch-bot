@@ -65,13 +65,6 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
         ship_fee_str = await db.get_setting("ship_fee") or str(config.SHIP_FEE)
         ship_fee = int(ship_fee_str)
 
-        # Giá/ship admin nhập tay cho ngày này (override) — ưu tiên nếu có
-        if existing:
-            if existing["price_override"] is not None:
-                price = existing["price_override"]
-            if existing["ship_fee_override"] is not None:
-                ship_fee = existing["ship_fee_override"]
-
         # Bắt buộc có ảnh thực đơn mới tạo vote — thiếu thì báo riêng admin
         menu_image = existing["menu_image"] if existing else None
         if not menu_image:

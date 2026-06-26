@@ -340,27 +340,25 @@ class TestAnnounceRoles:
         assert "trả hộp" in joined
 
 
-class TestOpenVotePriceOverride:
-    async def test_uses_price_override(self, db):
+class TestOpenVoteUsesGlobalPrice:
+    async def test_ignores_old_price_override(self, db):
         from scheduler import _scheduled_open_vote, _target_date
         today = _target_date(0)
         await db.set_menu_image(today, "menu.jpg")
-        await db.set_day_price(today, 30000, 0)
+        # set price_override/ship_fee_override (cột dormant) trực tiếp bằng SQL —
+        # tạo vote phải BỎ QUA, dùng giá toàn cục. (Raw SQL để test sống sót khi Task 8 gỡ set_day_price.)
+        import aiosqlite
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE daily_votes SET price_override=?, ship_fee_override=? WHERE date=?",
+                (30000, 5000, today),
+            )
+            await conn.commit()
         app = FakeApp()
         await _scheduled_open_vote(app, day_offset=0)
         daily = await db.get_daily_vote(today)
-        assert daily["price"] == 30000
-        assert daily["ship_fee"] == 0
-
-    async def test_no_override_uses_global(self, db):
-        from scheduler import _scheduled_open_vote, _target_date
-        today = _target_date(0)
-        await db.set_menu_image(today, "menu.jpg")
-        app = FakeApp()
-        await _scheduled_open_vote(app, day_offset=0)
-        daily = await db.get_daily_vote(today)
-        assert daily["price"] == config.PRICE_PER_MEAL   # 45000
-        assert daily["ship_fee"] == config.SHIP_FEE      # 20000
+        assert daily["price"] == config.PRICE_PER_MEAL   # 45000 — KHÔNG dùng override 30000
+        assert daily["ship_fee"] == config.SHIP_FEE      # 20000 — KHÔNG dùng override 5000
 
 
 class TestFridaySettle:
