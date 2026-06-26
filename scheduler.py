@@ -295,8 +295,8 @@ async def _scheduled_admin_digest(app: Application) -> None:
 
 
 async def _scheduled_friday_settle(app: Application, today: str | None = None) -> None:
-    """15:00 thứ 6 — chốt tiền bún đậu: áp giá override admin vào giá thực,
-    tính lại cost_per_person (update bảng). Im lặng, không gửi thông báo."""
+    """15:00 thứ 6 — chốt khoá tiền bún đậu: snapshot tiền mỗi người (giá món + ship/số người)
+    vào vote_entries.cost. Im lặng, không gửi thông báo."""
     if today is None:
         today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     if not _is_friday(today):
@@ -306,15 +306,8 @@ async def _scheduled_friday_settle(app: Application, today: str | None = None) -
         daily = await db.get_daily_vote(today)
         if not daily or daily["status"] not in ("open", "closed"):
             return
-        voters = await db.get_voters(today)
-        if not voters:
-            return
-        price = daily["price_override"] if daily["price_override"] is not None else daily["price"]
-        ship_fee = daily["ship_fee_override"] if daily["ship_fee_override"] is not None else daily["ship_fee"]
-        await db.set_day_actual_price(today, price, ship_fee)
-        cost_per_person = price + round(ship_fee / len(voters))
-        await db.set_cost_per_person(today, cost_per_person)
-        logger.info("✅ Friday settle %s: price=%s ship=%s cost=%s", today, price, ship_fee, cost_per_person)
+        n = await db.snapshot_day_costs(today)
+        logger.info("✅ Friday settle %s: chốt %d người", today, n)
     except Exception:
         logger.exception("❌ friday_settle failed for %s", today)
 

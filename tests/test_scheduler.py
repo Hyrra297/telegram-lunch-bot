@@ -364,70 +364,38 @@ class TestOpenVotePriceOverride:
 
 
 class TestFridaySettle:
-    async def test_applies_override_and_computes_cost(self, db):
+    async def _cost(self, db_mod, date, user_id):
+        import aiosqlite
+        async with aiosqlite.connect(db_mod.DB_PATH) as conn:
+            async with conn.execute("SELECT cost FROM vote_entries WHERE date=? AND user_id=?", (date, user_id)) as cur:
+                row = await cur.fetchone()
+        return row[0]
+
+    async def test_friday_snapshots_per_dish(self, db):
         from scheduler import _scheduled_friday_settle
         friday = "2026-01-02"
         await db.add_user(1, "An", "an")
         await db.add_user(2, "Binh", "binh")
-        await db.create_daily_vote(friday, 100, 45000, 20000)
-        await db.set_vote_closed(friday)            # đã đóng vote lúc 10h30
-        await db.toggle_vote(friday, 1)
-        await db.toggle_vote(friday, 2)
-        await db.set_day_price(friday, 30000, 0)    # admin nhập giá bún đậu thật
-        app = FakeApp()
-        await _scheduled_friday_settle(app, today=friday)
-        daily = await db.get_daily_vote(friday)
-        assert daily["price"] == 30000              # giá thực đã áp override
-        assert daily["ship_fee"] == 0
-        assert daily["cost_per_person"] == 30000    # 30000 + round(0/2)
-        assert app.bot.sent_messages == []          # im lặng, không gửi tin
-
-    async def test_no_override_uses_existing_price(self, db):
-        from scheduler import _scheduled_friday_settle
-        friday = "2026-01-02"
-        await db.add_user(1, "An", "an")
-        await db.create_daily_vote(friday, 100, 45000, 20000)
-        await db.set_vote_closed(friday)
-        await db.toggle_vote(friday, 1)
-        app = FakeApp()
-        await _scheduled_friday_settle(app, today=friday)
-        daily = await db.get_daily_vote(friday)
-        assert daily["price"] == 45000
-        assert daily["cost_per_person"] == 65000    # 45000 + round(20000/1)
-
-    async def test_skips_when_no_voters(self, db):
-        from scheduler import _scheduled_friday_settle
-        friday = "2026-01-02"
-        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.create_daily_vote(friday, 100, 45000, 0)
+        await db.save_menu_items(friday, ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices(friday, [35000, 50000])
+        await db.set_day_ship(friday, 10000)
+        await db.vote_for_dish(friday, 1, "Bún đậu thường")
+        await db.vote_for_dish(friday, 2, "Bún đậu đầy đủ")
         await db.set_vote_closed(friday)
         app = FakeApp()
         await _scheduled_friday_settle(app, today=friday)
-        daily = await db.get_daily_vote(friday)
-        assert daily["cost_per_person"] is None
+        assert await self._cost(db, friday, 1) == 40000
+        assert await self._cost(db, friday, 2) == 55000
+        assert app.bot.sent_messages == []   # im lặng
 
     async def test_non_friday_noop(self, db):
         from scheduler import _scheduled_friday_settle
         monday = "2026-01-05"
-        await db.create_daily_vote(monday, 100, 45000, 20000)
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(monday, 100, 45000, 0)
+        await db.vote_for_dish(monday, 1, "Cơm gà")
+        await db.set_vote_closed(monday)
         app = FakeApp()
         await _scheduled_friday_settle(app, today=monday)
-        daily = await db.get_daily_vote(monday)
-        assert daily["cost_per_person"] is None
-
-    async def test_settle_after_close_applies_late_override(self, db):
-        from scheduler import _scheduled_friday_settle
-        friday = "2026-01-02"
-        await db.add_user(1, "An", "an")
-        await db.add_user(2, "Binh", "binh")
-        await db.create_daily_vote(friday, 100, 45000, 20000)  # 08:30: giá toàn cục
-        await db.toggle_vote(friday, 1)
-        await db.toggle_vote(friday, 2)
-        await db.set_vote_closed(friday)                       # 10:30 đóng, chưa tính tiền
-        await db.set_day_price(friday, 30000, 0)               # admin nhập giá bún đậu thật SAU khi đóng
-        app = FakeApp()
-        await _scheduled_friday_settle(app, today=friday)
-        daily = await db.get_daily_vote(friday)
-        assert daily["price"] == 30000        # bảng giờ hiển thị giá đã chốt
-        assert daily["ship_fee"] == 0
-        assert daily["cost_per_person"] == 30000  # 30000 + round(0/2)
-        assert app.bot.sent_messages == []    # im lặng
+        assert await self._cost(db, monday, 1) is None  # không chốt ngày thường
