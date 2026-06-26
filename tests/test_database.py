@@ -487,6 +487,8 @@ class TestFridayTemplate:
         applied = await db.apply_friday_template("2026-01-02")
         assert applied is False
         assert await db.get_menu_items("2026-01-02") == ["Món tay"]
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["ship_fee"] == 20000   # template ship=0 KHÔNG được áp (giữ default)
 
     async def test_returns_false_when_no_template(self, db):
         assert await db.apply_friday_template("2026-01-02") is False
