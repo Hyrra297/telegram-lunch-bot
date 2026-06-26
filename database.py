@@ -62,6 +62,11 @@ async def init_db() -> None:
             "ALTER TABLE daily_votes ADD COLUMN cost_per_person INTEGER",
             "ALTER TABLE daily_votes ADD COLUMN price_override INTEGER",
             "ALTER TABLE daily_votes ADD COLUMN ship_fee_override INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish1_price INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish2_price INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish3_price INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN dish4_price INTEGER",
+            "ALTER TABLE vote_entries ADD COLUMN cost INTEGER",
         ]:
             try:
                 await db.execute(col_sql)
@@ -281,6 +286,32 @@ async def set_day_price(date: str, price_override: Optional[int], ship_fee_overr
         await db.execute(
             "UPDATE daily_votes SET price_override = ?, ship_fee_override = ? WHERE date = ?",
             (price_override, ship_fee_override, date),
+        )
+        await db.commit()
+
+
+async def set_day_dish_prices(date: str, prices: list) -> None:
+    """Lưu giá cho từng món (positional dish1_price..dish4_price). None = không có giá."""
+    p = (list(prices) + [None, None, None, None])[:4]
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')", (date,),
+        )
+        await db.execute(
+            "UPDATE daily_votes SET dish1_price=?, dish2_price=?, dish3_price=?, dish4_price=? WHERE date=?",
+            (p[0], p[1], p[2], p[3], date),
+        )
+        await db.commit()
+
+
+async def set_day_ship(date: str, ship_fee: int) -> None:
+    """Ghi ship/ngày thẳng vào daily_votes.ship_fee (bảng đọc live)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')", (date,),
+        )
+        await db.execute(
+            "UPDATE daily_votes SET ship_fee=? WHERE date=?", (ship_fee, date),
         )
         await db.commit()
 

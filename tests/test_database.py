@@ -264,27 +264,35 @@ async def test_is_voter(db):
     assert await db.is_voter("2026-06-03", 1) is False
 
 
-class TestDayPrice:
-    async def test_set_day_price_stores_override(self, db):
-        await db.set_day_price("2026-01-02", 30000, 0)
+class TestDayDishPrices:
+    async def test_set_dish_prices_stores_positional(self, db):
+        await db.save_menu_items("2026-01-02", ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices("2026-01-02", [35000, 50000])
         dv = await db.get_daily_vote("2026-01-02")
-        assert dv["price_override"] == 30000
-        assert dv["ship_fee_override"] == 0
+        assert dv["dish1_price"] == 35000
+        assert dv["dish2_price"] == 50000
+        assert dv["dish3_price"] is None
+        assert dv["dish4_price"] is None
 
-    async def test_set_day_price_none_clears(self, db):
-        await db.set_day_price("2026-01-02", 30000, 0)
-        await db.set_day_price("2026-01-02", None, None)
+    async def test_set_dish_prices_none_clears(self, db):
+        await db.set_day_dish_prices("2026-01-02", [35000, 50000])
+        await db.set_day_dish_prices("2026-01-02", [None, None])
         dv = await db.get_daily_vote("2026-01-02")
-        assert dv["price_override"] is None
-        assert dv["ship_fee_override"] is None
+        assert dv["dish1_price"] is None
+        assert dv["dish2_price"] is None
 
-    async def test_get_week_data_includes_override(self, db):
-        await db.set_day_price("2026-01-02", 30000, 0)
-        rows = await db.get_week_data(["2026-01-02"])
-        assert rows[0]["price_override"] == 30000
-        assert rows[0]["ship_fee_override"] == 0
+    async def test_set_day_ship_updates(self, db):
+        await db.set_day_ship("2026-01-02", 10000)
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["ship_fee"] == 10000
 
-    async def test_get_week_data_no_row_override_none(self, db):
-        rows = await db.get_week_data(["2026-01-02"])
-        assert rows[0]["price_override"] is None
-        assert rows[0]["ship_fee_override"] is None
+    async def test_vote_entries_cost_column_exists(self, db):
+        # cột cost nullable, mặc định NULL
+        await db.create_daily_vote("2026-01-02", 100, 45000, 20000)
+        await db.toggle_vote("2026-01-02", 1)
+        import aiosqlite
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            async with conn.execute("SELECT cost FROM vote_entries WHERE date=? AND user_id=?", ("2026-01-02", 1)) as cur:
+                row = await cur.fetchone()
+        assert row["cost"] is None
