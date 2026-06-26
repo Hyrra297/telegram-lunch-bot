@@ -33,3 +33,9 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+
+# Runtime logs
+logs/
+
+# Script không liên quan (IELTS slides generator)
+create_slides.py

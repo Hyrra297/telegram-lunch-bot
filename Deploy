@@ -1,0 +1,21 @@
+Bước 1: Cài flyctl trên Windows
+
+Mở PowerShell (không cần admin) và chạy:
+
+
+pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
+Hoặc nếu dùng PowerShell thường:
+
+
+iwr https://fly.io/install.ps1 -useb | iex
+Bước 2: Đăng nhập
+
+
+fly auth login
+Trình duyệt sẽ mở ra → đăng nhập bằng tài khoản Fly.io của bạn.
+
+Bước 3: Deploy
+
+
+cd d:\telegram-lunch-bot
+fly deploy --yes
