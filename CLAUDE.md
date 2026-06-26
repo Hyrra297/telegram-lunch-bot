@@ -120,7 +120,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 ### Web dashboard
 
-- Tab "Tuần này": xem ai đặt, nhập 4 món cho từng ngày (admin); riêng T6 có thêm ô nhập giá/ship bún đậu (`price_override`/`ship_fee_override`)
+- Tab "Tuần này": xem ai đặt, nhập 4 món cho từng ngày (admin); riêng T6 nhập **giá từng món** (`dish1_price`..`dish4_price`) + **ship** cho bún đậu (đã bỏ ô "Giá/s" đơn giá)
 - Tab "Tháng": bảng chi tiết tiền từng người, nút toggle paid
 - Tab "Lịch sử": các ngày đã đóng vote
 - Ngày đã qua mà status vẫn `open` → hiện là `closed` (fix trong `get_week_data`)
