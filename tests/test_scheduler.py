@@ -67,6 +67,12 @@ class FakeBot:
     async def send_photo(self, chat_id, photo, caption=None, **kwargs):
         self.sent_photos.append(caption)
 
+    async def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, **kwargs):
+        pass
+
+    async def stop_poll(self, chat_id, message_id, **kwargs):
+        pass
+
 
 class FakeApp:
     def __init__(self):
@@ -87,11 +93,14 @@ class TestScheduledOpenVote:
         assert daily is not None
         assert daily["status"] == "open"
 
-    async def test_offset_one_uses_ngay_mai_wording(self, db):
-        from scheduler import _scheduled_open_vote, _target_date
-        await db.set_menu_image(_target_date(1), "menu.jpg")
+    async def test_offset_one_uses_ngay_mai_wording(self, db, monkeypatch):
+        import scheduler
+        # Pin ngày đích là thứ 2 (không phải thứ 6) để luôn kiểm tra wording "ngày mai"
+        monday = "2026-01-05"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: monday)
+        await db.set_menu_image(monday, "menu.jpg")
         app = FakeApp()
-        await _scheduled_open_vote(app, day_offset=1)
+        await scheduler._scheduled_open_vote(app, day_offset=1)
         # Không có món ăn → fallback inline keyboard, text dùng "ngày mai"
         assert any("Đặt cơm ngày mai" in m for m in app.bot.sent_messages)
 
@@ -112,13 +121,15 @@ class TestScheduledOpenVote:
         assert app.bot.sent_messages == []
         assert app.bot.sent_polls == []
 
-    async def test_offset_one_poll_uses_ngay_mai_question(self, db):
-        from scheduler import _scheduled_open_vote, _target_date
-        tomorrow = _target_date(1)
-        await db.set_menu_image(tomorrow, "menu.jpg")
-        await db.save_menu_items(tomorrow, ["Cơm gà", "Bún bò"])
+    async def test_offset_one_poll_uses_ngay_mai_question(self, db, monkeypatch):
+        import scheduler
+        # Pin ngày đích là thứ 2 (không phải thứ 6) để luôn kiểm tra question "ngày mai"
+        monday = "2026-01-05"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: monday)
+        await db.set_menu_image(monday, "menu.jpg")
+        await db.save_menu_items(monday, ["Cơm gà", "Bún bò"])
         app = FakeApp()
-        await _scheduled_open_vote(app, day_offset=1)
+        await scheduler._scheduled_open_vote(app, day_offset=1)
         assert len(app.bot.sent_polls) == 1
         assert app.bot.sent_polls[0]["question"] == "🍱 Ngày mai ăn gì?"
         assert app.bot.sent_polls[0]["options"] == ["Cơm gà", "Bún bò"]
@@ -211,7 +222,7 @@ class TestBuildScheduler:
         from scheduler import build_scheduler
         sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
         ids = {j.id for j in sched.get_jobs()}
-        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest"}
+        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
         assert "vote_reminder" not in ids
         assert "open_vote" not in ids
 
@@ -221,7 +232,17 @@ class TestBuildScheduler:
         jobs = {j.id: j for j in sched.get_jobs()}
         trig = str(jobs["open_vote_evening"].trigger)
         assert "hour='19'" in trig
-        assert "day_of_week='sun,mon,tue,wed,thu'" in trig
+        assert "day_of_week='sun,mon,tue,wed'" in trig
+        assert "thu" not in trig
+
+    def test_digest_job_excludes_thursday(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        trig = str(jobs["admin_digest"].trigger)
+        assert "hour='20'" in trig
+        assert "day_of_week='sun,mon,tue,wed'" in trig
+        assert "thu" not in trig
 
     def test_morning_job_trigger(self):
         from scheduler import build_scheduler
@@ -238,3 +259,175 @@ class TestBuildScheduler:
         jobs = {j.id: j for j in sched.get_jobs()}
         # args = [app, day_offset]; job tối phải truyền day_offset=1
         assert jobs["open_vote_evening"].args[1] == 1
+
+    def test_friday_settle_job(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        assert "friday_settle" in jobs
+        trig = str(jobs["friday_settle"].trigger)
+        assert "hour='15'" in trig
+        assert "day_of_week='fri'" in trig
+
+
+class TestIsFriday:
+    def test_friday_true(self):
+        from scheduler import _is_friday
+        assert _is_friday("2026-01-02") is True  # thứ 6
+
+    def test_monday_false(self):
+        from scheduler import _is_friday
+        assert _is_friday("2026-01-05") is False  # thứ 2
+
+
+class TestFridayWording:
+    def test_friday_uses_bun_dau_wording(self):
+        from scheduler import _open_vote_wording
+        w = _open_vote_wording(0, "2026-01-02")  # thứ 6
+        assert w["day_label"] == "hôm nay"
+        assert w["caption"] == "🍜 Thực đơn bún đậu hôm nay"
+        assert w["poll_question"] == "🥢 Hôm nay ăn bún đậu gì?"
+
+    def test_non_friday_keeps_default(self):
+        from scheduler import _open_vote_wording
+        w = _open_vote_wording(0, "2026-01-05")  # thứ 2
+        assert w["caption"] == "🍽️ Thực đơn hôm nay"
+        assert w["poll_question"] == "🍱 Hôm nay ăn gì?"
+
+    def test_no_date_keeps_default(self):
+        from scheduler import _open_vote_wording
+        w = _open_vote_wording(0)  # backward-compat: không truyền date
+        assert w["caption"] == "🍽️ Thực đơn hôm nay"
+
+
+class TestAnnounceRoles:
+    async def _setup_two_voters(self, db, date):
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 20000)  # status='open'
+        await db.toggle_vote(date, 1)
+        await db.toggle_vote(date, 2)
+
+    async def test_friday_only_picker_no_returner(self, db):
+        from scheduler import _scheduled_announce_roles
+        friday = "2026-01-02"
+        await self._setup_two_voters(db, friday)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=friday)
+
+        daily = await db.get_daily_vote(friday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is not None
+        assert daily["returner_user_id"] is None
+        # Thứ 6: KHÔNG tính tiền lúc 10h30 (đợi job 15h)
+        assert daily["cost_per_person"] is None
+        joined = " ".join(app.bot.sent_messages)
+        assert "đi lấy bún đậu" in joined
+        assert "trả hộp" not in joined
+
+    async def test_non_friday_assigns_returner(self, db):
+        from scheduler import _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup_two_voters(db, monday)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=monday)
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["returner_user_id"] is not None
+        # Ngày thường: vẫn tính tiền lúc 10h30
+        assert daily["cost_per_person"] is not None
+        joined = " ".join(app.bot.sent_messages)
+        assert "trả hộp" in joined
+
+
+class TestOpenVotePriceOverride:
+    async def test_uses_price_override(self, db):
+        from scheduler import _scheduled_open_vote, _target_date
+        today = _target_date(0)
+        await db.set_menu_image(today, "menu.jpg")
+        await db.set_day_price(today, 30000, 0)
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=0)
+        daily = await db.get_daily_vote(today)
+        assert daily["price"] == 30000
+        assert daily["ship_fee"] == 0
+
+    async def test_no_override_uses_global(self, db):
+        from scheduler import _scheduled_open_vote, _target_date
+        today = _target_date(0)
+        await db.set_menu_image(today, "menu.jpg")
+        app = FakeApp()
+        await _scheduled_open_vote(app, day_offset=0)
+        daily = await db.get_daily_vote(today)
+        assert daily["price"] == config.PRICE_PER_MEAL   # 45000
+        assert daily["ship_fee"] == config.SHIP_FEE      # 20000
+
+
+class TestFridaySettle:
+    async def test_applies_override_and_computes_cost(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)            # đã đóng vote lúc 10h30
+        await db.toggle_vote(friday, 1)
+        await db.toggle_vote(friday, 2)
+        await db.set_day_price(friday, 30000, 0)    # admin nhập giá bún đậu thật
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 30000              # giá thực đã áp override
+        assert daily["ship_fee"] == 0
+        assert daily["cost_per_person"] == 30000    # 30000 + round(0/2)
+        assert app.bot.sent_messages == []          # im lặng, không gửi tin
+
+    async def test_no_override_uses_existing_price(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)
+        await db.toggle_vote(friday, 1)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 45000
+        assert daily["cost_per_person"] == 65000    # 45000 + round(20000/1)
+
+    async def test_skips_when_no_voters(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.set_vote_closed(friday)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["cost_per_person"] is None
+
+    async def test_non_friday_noop(self, db):
+        from scheduler import _scheduled_friday_settle
+        monday = "2026-01-05"
+        await db.create_daily_vote(monday, 100, 45000, 20000)
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=monday)
+        daily = await db.get_daily_vote(monday)
+        assert daily["cost_per_person"] is None
+
+    async def test_settle_after_close_applies_late_override(self, db):
+        from scheduler import _scheduled_friday_settle
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(friday, 100, 45000, 20000)  # 08:30: giá toàn cục
+        await db.toggle_vote(friday, 1)
+        await db.toggle_vote(friday, 2)
+        await db.set_vote_closed(friday)                       # 10:30 đóng, chưa tính tiền
+        await db.set_day_price(friday, 30000, 0)               # admin nhập giá bún đậu thật SAU khi đóng
+        app = FakeApp()
+        await _scheduled_friday_settle(app, today=friday)
+        daily = await db.get_daily_vote(friday)
+        assert daily["price"] == 30000        # bảng giờ hiển thị giá đã chốt
+        assert daily["ship_fee"] == 0
+        assert daily["cost_per_person"] == 30000  # 30000 + round(0/2)
+        assert app.bot.sent_messages == []    # im lặng

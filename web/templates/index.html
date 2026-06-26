@@ -532,6 +532,14 @@
               <input type="text" name="dish4" placeholder="Món 4" value="{{ dishes[3] }}"
                 style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
             </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <input type="number" name="price" placeholder="Giá/suất (vd 40000)"
+                value="{{ day.price_override if day.price_override is not none else '' }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="number" name="ship_fee" placeholder="Ship (để 0 nếu không)"
+                value="{{ day.ship_fee_override if day.ship_fee_override is not none else '' }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+            </div>
             <button type="submit"
               style="align-self:flex-start;padding:6px 14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.82rem">
               💾 Lưu món

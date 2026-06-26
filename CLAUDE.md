@@ -30,19 +30,23 @@ python bot.py
 ## Lịch tự động (scheduler)
 | Giờ | Ngày | Hành động |
 |---|---|---|
-| 19:00 | CN–T5 | Tạo vote cho ngày hôm sau (T2–T6), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin** |
-| 20:00 | CN–T5 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai |
-| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh) |
-| 10:30 | T2–T6 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp |
+| 19:00 | CN–T4 | Tạo vote cho ngày hôm sau (T2–T5), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin**. T5 không tạo vote cho T6 — T6 do job 08:30 đảm nhận |
+| 20:00 | CN–T4 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai. Không chạy T5 (không digest trước thứ 6) |
+| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). **T6: đây là job DUY NHẤT tạo vote bún đậu** (caption `🍜 Thực đơn bún đậu hôm nay`, poll `🥢 Hôm nay ăn bún đậu gì?`) |
+| 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền |
+| 10:30 | T6 | Đóng vote + **chỉ phân công 1 picker** đi lấy bún đậu (`🛵 @X đi lấy bún đậu`). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
+| 15:00 | T6 | **`friday_settle`**: áp giá/ship admin nhập tay (`price_override`/`ship_fee_override`) vào `daily_votes.price`/`ship_fee`, tính `cost_per_person`, cập nhật bảng. Im lặng (không gửi tin) |
 
-Mọi ngày T2–T6 đều tạo vote từ 19:00 tối hôm trước (CN tạo vote cho T2). Job 08:30
-là lưới an toàn (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và gửi tin nhắc nếu vote đã có.
+Mọi ngày T2–T5 đều tạo vote từ 19:00 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc 08:30 sáng T6 (không tạo tối T5, không digest tối T5). Job 08:30
+là lưới an toàn cho T2–T5 (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và là job chính cho T6.
 Ngoài ra: **sau digest gửi admin lúc 20:00 tối hôm trước**, mọi thay đổi vote cho ngày
 đó (đặt mới, đổi món, huỷ) đều được nhắn riêng admin real-time (không vào nhóm) cho tới
-khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm trước. Trước mốc digest không
+khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm trước. T6: real-time notify hoạt động từ 08:30–10:30 (sau khi vote được tạo). Trước mốc digest không
 báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers/vote.py`
 (so giờ với `ADMIN_DIGEST_TIME` của tối hôm trước); mẫu tin trong `admin_notify.py`.
+
+**Giá bún đậu T6**: admin nhập `price_override`/`ship_fee_override` trực tiếp trong web tab "Tuần này" (ô giá/ship riêng cho T6). Job `friday_settle` lúc 15:00 mới áp giá đó vào bảng.
 
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (20:00)
 
@@ -50,7 +54,7 @@ Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00),
 - `bot.py` — entry point bot, đăng ký handlers + `set_my_commands`
 - `config.py` — đọc `.env`
 - `database.py` — toàn bộ SQL queries
-- `scheduler.py` — 5 jobs: open_vote_evening (19:00), admin_digest (20:00), morning (08:30), announce_roles (10:30), monthly_summary (14:00)
+- `scheduler.py` — 6 jobs: open_vote_evening (19:00 CN–T4), admin_digest (20:00 CN–T4), morning (08:30 T2–T6), announce_roles (10:30 T2–T6), friday_settle (15:00 T6), monthly_summary (14:00)
 - `admin_notify.py` — thông báo vote riêng cho admin (digest + real-time), gửi vào chat với bot
 - `image_summary.py` — render bảng tổng kết tiền cơm thành ảnh PNG (Pillow + font DejaVuSans)
 - `handlers/vote.py` — open/close vote, poll answer, inline keyboard fallback
@@ -64,7 +68,8 @@ Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00),
 ```sql
 users            -- id, username, full_name, rotation_index, return_index, active
 daily_votes      -- date PK, status (open/closed/none), picker_user_id, returner_user_id,
-                 --   dish1-4, poll_id, poll_message_id, price, ship_fee, menu_image
+                 --   dish1-4, poll_id, poll_message_id, price, ship_fee, menu_image,
+                 --   price_override (nullable), ship_fee_override (nullable)
 vote_entries     -- date+user_id PK, dish
 settings         -- key/value (price, ship_fee, open_time, close_time)
 monthly_payments -- year_month+user_id PK
@@ -105,6 +110,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Công thức: `price + round(ship_fee / voter_count)` cho mỗi ngày
 - Mặc định: 45,000đ + 20,000đ ship chia đều số người vote
 - Cả `/summary` bot và web dashboard dùng cùng công thức (`get_monthly_summary` và `get_monthly_detail`)
+- Riêng T6 (bún đậu): KHÔNG tính tiền lúc 10:30; job `friday_settle` 15:00 mới áp giá admin (`price_override`/`ship_fee_override`) vào `daily_votes.price`/`ship_fee` rồi tính `cost_per_person`, cập nhật bảng
 
 ### Security (web login)
 - Timing-safe: `hmac.compare_digest`
@@ -112,7 +118,8 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Open redirect prevention: `_safe_redirect()` chỉ cho phép path bắt đầu bằng `/` không phải `//`
 
 ### Web dashboard
-- Tab "Tuần này": xem ai đặt, nhập 4 món cho từng ngày (admin)
+
+- Tab "Tuần này": xem ai đặt, nhập 4 món cho từng ngày (admin); riêng T6 có thêm ô nhập giá/ship bún đậu (`price_override`/`ship_fee_override`)
 - Tab "Tháng": bảng chi tiết tiền từng người, nút toggle paid
 - Tab "Lịch sử": các ngày đã đóng vote
 - Ngày đã qua mà status vẫn `open` → hiện là `closed` (fix trong `get_week_data`)
@@ -120,8 +127,9 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 ## Conventions
 - Web và bot dùng chung SQLite — không conflict nhờ WAL mode
 - Admin check: `user_id in config.ADMIN_IDS`
-- `close_daily_vote()`: đóng + chọn picker/returner (dùng lúc 10:30)
+- `close_daily_vote()`: đóng + chọn người (dùng lúc 10:30). T2–T5: picker + returner; T6 (bún đậu): chỉ picker (returner = None)
 - `set_vote_closed()`: chỉ đóng, chưa chọn người (dùng trong announce_roles lúc 10:30)
+- **Giới hạn**: Lệnh admin thủ công `/close_vote` và `/assign` KHÔNG áp logic thứ 6 — nếu admin tự đóng/phân công vote thứ 6 sẽ vẫn gán người trả hộp và tính tiền ngay (logic cơm). Ngày bún đậu nên để luồng tự động (10:30 chỉ picker, 15:00 friday_settle) xử lý.
 - Web cần restart uvicorn sau khi sửa code Python
 
 ## Lưu ý khi deploy

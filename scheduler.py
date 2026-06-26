@@ -22,8 +22,19 @@ def _target_date(day_offset: int = 0) -> str:
     return (datetime.now(tz) + timedelta(days=day_offset)).strftime("%Y-%m-%d")
 
 
-def _open_vote_wording(day_offset: int) -> dict:
-    """Chữ hiển thị tuỳ vote tạo cho hôm nay hay cho ngày mai."""
+def _is_friday(date_str: str) -> bool:
+    """True nếu date_str (YYYY-MM-DD) là thứ 6."""
+    return datetime.strptime(date_str, "%Y-%m-%d").weekday() == 4
+
+
+def _open_vote_wording(day_offset: int, date_str: str | None = None) -> dict:
+    """Chữ hiển thị tuỳ vote tạo cho hôm nay hay ngày mai; thứ 6 dùng wording bún đậu."""
+    if date_str and _is_friday(date_str):
+        return {
+            "caption": "🍜 Thực đơn bún đậu hôm nay",
+            "poll_question": "🥢 Hôm nay ăn bún đậu gì?",
+            "day_label": "hôm nay",
+        }
     if day_offset >= 1:
         return {
             "caption": "🍽️ Thực đơn ngày mai",
@@ -40,7 +51,7 @@ def _open_vote_wording(day_offset: int) -> dict:
 async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
     """Tạo vote cho ngày đích. day_offset=0 → hôm nay, day_offset=1 → ngày mai."""
     target_str = _target_date(day_offset)
-    wording = _open_vote_wording(day_offset)
+    wording = _open_vote_wording(day_offset, target_str)
     logger.info("⏰ Scheduler: open_vote triggered for %s (offset=%d)", target_str, day_offset)
 
     try:
@@ -53,6 +64,13 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
         price = int(price_str)
         ship_fee_str = await db.get_setting("ship_fee") or str(config.SHIP_FEE)
         ship_fee = int(ship_fee_str)
+
+        # Giá/ship admin nhập tay cho ngày này (override) — ưu tiên nếu có
+        if existing:
+            if existing["price_override"] is not None:
+                price = existing["price_override"]
+            if existing["ship_fee_override"] is not None:
+                ship_fee = existing["ship_fee_override"]
 
         # Bắt buộc có ảnh thực đơn mới tạo vote — thiếu thì báo riêng admin
         menu_image = existing["menu_image"] if existing else None
@@ -134,10 +152,11 @@ async def _scheduled_morning(app: Application) -> None:
         logger.exception("❌ morning job failed for %s", today)
 
 
-async def _scheduled_announce_roles(app: Application) -> None:
-    """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp."""
-    from datetime import datetime
-    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+async def _scheduled_announce_roles(app: Application, today: str | None = None) -> None:
+    """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp.
+    Thứ 6 (bún đậu): chỉ chọn 1 người đi lấy, không trả hộp."""
+    if today is None:
+        today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     logger.info("⏰ Scheduler: announce_roles triggered for %s", today)
 
     try:
@@ -191,32 +210,38 @@ async def _scheduled_announce_roles(app: Application) -> None:
             )
             return
 
-        picker = await db.pick_next_fetcher(today)
-        returner = await db.pick_next_returner(today, picker["id"])
-        await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
-
         def _esc(s: str) -> str:
             return s.replace("_", "\\_")
 
+        picker = await db.pick_next_fetcher(today)
         picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
-        if returner and returner["id"] != picker["id"]:
-            returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
-            roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
-        else:
-            roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
 
-        # Tính chi phí mỗi người
-        price = daily.get("price") or config.PRICE_PER_MEAL
-        ship_fee = daily.get("ship_fee") or config.SHIP_FEE
-        cost_per_person = price + round(ship_fee / len(voters))
-        await db.set_cost_per_person(today, cost_per_person)
+        if _is_friday(today):
+            # Ngày bún đậu: chỉ 1 người đi lấy, không trả hộp
+            await db.close_daily_vote(today, picker["id"], None)
+            roles_text = f"🛵 {picker_mention} đi lấy bún đậu"
+        else:
+            returner = await db.pick_next_returner(today, picker["id"])
+            await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
+            if returner and returner["id"] != picker["id"]:
+                returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
+                roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
+            else:
+                roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
+
+        # Tính chi phí mỗi người — thứ 6 (bún đậu) đợi job 15h, KHÔNG tính lúc 10h30
+        if not _is_friday(today):
+            price = daily.get("price") or config.PRICE_PER_MEAL
+            ship_fee = daily.get("ship_fee") or config.SHIP_FEE
+            cost_per_person = price + round(ship_fee / len(voters))
+            await db.set_cost_per_person(today, cost_per_person)
 
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
             text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
             parse_mode="Markdown",
         )
-        logger.info("✅ Roles assigned for %s, picker=%s, cost=%s", today, picker["username"], cost_per_person)
+        logger.info("✅ Roles assigned for %s, picker=%s", today, picker["username"])
     except Exception:
         logger.exception("❌ announce_roles failed for %s", today)
 
@@ -269,6 +294,31 @@ async def _scheduled_admin_digest(app: Application) -> None:
         logger.exception("❌ admin_digest failed for %s", tomorrow)
 
 
+async def _scheduled_friday_settle(app: Application, today: str | None = None) -> None:
+    """15:00 thứ 6 — chốt tiền bún đậu: áp giá override admin vào giá thực,
+    tính lại cost_per_person (update bảng). Im lặng, không gửi thông báo."""
+    if today is None:
+        today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    if not _is_friday(today):
+        return
+    logger.info("⏰ Scheduler: friday_settle triggered for %s", today)
+    try:
+        daily = await db.get_daily_vote(today)
+        if not daily or daily["status"] not in ("open", "closed"):
+            return
+        voters = await db.get_voters(today)
+        if not voters:
+            return
+        price = daily["price_override"] if daily["price_override"] is not None else daily["price"]
+        ship_fee = daily["ship_fee_override"] if daily["ship_fee_override"] is not None else daily["ship_fee"]
+        await db.set_day_actual_price(today, price, ship_fee)
+        cost_per_person = price + round(ship_fee / len(voters))
+        await db.set_cost_per_person(today, cost_per_person)
+        logger.info("✅ Friday settle %s: price=%s ship=%s cost=%s", today, price, ship_fee, cost_per_person)
+    except Exception:
+        logger.exception("❌ friday_settle failed for %s", today)
+
+
 def build_scheduler(app: Application) -> AsyncIOScheduler:
     tz = pytz.timezone(config.TIMEZONE)
 
@@ -282,10 +332,10 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
     digest_h, digest_m = _hm(config.ADMIN_DIGEST_TIME)     # 20:00
 
     scheduler = AsyncIOScheduler(timezone=tz)
-    # 19:00 CN-T5: tạo vote cho ngày mai (T2-T6) — gồm CN tạo vote cho thứ 2
+    # 19:00 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job 08:30 tạo
     scheduler.add_job(
         _scheduled_open_vote,
-        trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed,thu", timezone=tz),
+        trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed", timezone=tz),
         args=[app, 1], id="open_vote_evening", replace_existing=True, misfire_grace_time=300,
     )
     # 08:30 T2-T6: có vote → nhắc; chưa có → tạo vote (lưới an toàn)
@@ -300,10 +350,10 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         trigger=CronTrigger(hour=announce_h, minute=announce_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="announce_roles", replace_existing=True, misfire_grace_time=300,
     )
-    # 20:00 CN-T5: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2)
+    # 20:00 CN-T4: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2; bỏ T5 vì T6 không tạo vote tối)
     scheduler.add_job(
         _scheduled_admin_digest,
-        trigger=CronTrigger(hour=digest_h, minute=digest_m, day_of_week="sun,mon,tue,wed,thu", timezone=tz),
+        trigger=CronTrigger(hour=digest_h, minute=digest_m, day_of_week="sun,mon,tue,wed", timezone=tz),
         args=[app], id="admin_digest", replace_existing=True, misfire_grace_time=300,
     )
     # 14:00 hằng ngày: tổng kết tháng (tự thoát nếu không phải ngày cuối tháng)
@@ -311,5 +361,11 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         _scheduled_monthly_summary,
         trigger=CronTrigger(hour=14, minute=0, day_of_week="mon-sun", timezone=tz),
         args=[app], id="monthly_summary", replace_existing=True, misfire_grace_time=300,
+    )
+    # 15:00 thứ 6: chốt tiền bún đậu (áp giá admin + tính cost), im lặng
+    scheduler.add_job(
+        _scheduled_friday_settle,
+        trigger=CronTrigger(hour=15, minute=0, day_of_week="fri", timezone=tz),
+        args=[app], id="friday_settle", replace_existing=True, misfire_grace_time=300,
     )
     return scheduler
