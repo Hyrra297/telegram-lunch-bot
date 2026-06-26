@@ -298,6 +298,50 @@ class TestDayDishPrices:
         assert row["cost"] is None
 
 
+class TestSnapshotDayCosts:
+    async def _setup(self, db, date):
+        await db.add_user(1, "An", "an")
+        await db.add_user(2, "Binh", "binh")
+        await db.create_daily_vote(date, 100, 45000, 0)   # price=45000 (fallback), ship=0
+        await db.save_menu_items(date, ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices(date, [35000, 50000])
+        await db.set_day_ship(date, 10000)                # ship 10k chia 2 = 5k
+        await db.vote_for_dish(date, 1, "Bún đậu thường")  # 35000 + 5000
+        await db.vote_for_dish(date, 2, "Bún đậu đầy đủ")  # 50000 + 5000
+        await db.set_vote_closed(date)
+
+    async def _cost(self, db, date, user_id):
+        import aiosqlite
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            async with conn.execute("SELECT cost FROM vote_entries WHERE date=? AND user_id=?", (date, user_id)) as cur:
+                row = await cur.fetchone()
+        return row[0]
+
+    async def test_snapshot_computes_per_dish(self, db):
+        date = "2026-01-02"
+        await self._setup(db, date)
+        n = await db.snapshot_day_costs(date)
+        assert n == 2
+        assert await self._cost(db, date, 1) == 40000   # 35000 + round(10000/2)
+        assert await self._cost(db, date, 2) == 55000   # 50000 + round(10000/2)
+
+    async def test_snapshot_fallback_when_no_dish_price(self, db):
+        date = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(date, 100, 45000, 0)
+        await db.save_menu_items(date, ["Món chưa có giá"])
+        await db.vote_for_dish(date, 1, "Món chưa có giá")
+        await db.set_vote_closed(date)
+        await db.snapshot_day_costs(date)
+        assert await self._cost(db, date, 1) == 45000   # fallback daily.price, ship 0
+
+    async def test_snapshot_no_voters_returns_zero(self, db):
+        date = "2026-01-02"
+        await db.create_daily_vote(date, 100, 45000, 0)
+        await db.set_vote_closed(date)
+        assert await db.snapshot_day_costs(date) == 0
+
+
 class TestWeekDataDishPrices:
     async def test_week_data_includes_dish_prices_and_ship(self, db):
         await db.save_menu_items("2026-01-02", ["Bún đậu thường", "Bún đậu đầy đủ"])
