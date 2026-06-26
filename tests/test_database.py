@@ -296,3 +296,20 @@ class TestDayDishPrices:
             async with conn.execute("SELECT cost FROM vote_entries WHERE date=? AND user_id=?", ("2026-01-02", 1)) as cur:
                 row = await cur.fetchone()
         assert row["cost"] is None
+
+
+class TestWeekDataDishPrices:
+    async def test_week_data_includes_dish_prices_and_ship(self, db):
+        await db.save_menu_items("2026-01-02", ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices("2026-01-02", [35000, 50000])
+        await db.set_day_ship("2026-01-02", 10000)
+        rows = await db.get_week_data(["2026-01-02"])
+        assert rows[0]["dish1_price"] == 35000
+        assert rows[0]["dish2_price"] == 50000
+        assert rows[0]["ship_fee"] == 10000
+        assert "price_override" not in rows[0]
+
+    async def test_week_data_no_row_dish_prices_none(self, db):
+        rows = await db.get_week_data(["2026-01-02"])
+        assert rows[0]["dish1_price"] is None
+        assert rows[0]["ship_fee"] is None

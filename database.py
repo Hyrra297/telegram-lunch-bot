@@ -696,8 +696,11 @@ async def get_week_data(week_dates: list) -> list:
                     "voters": [],
                     "picker_name": None,
                     "menu_image": None,
-                    "price_override": None,
-                    "ship_fee_override": None,
+                    "dish1_price": None,
+                    "dish2_price": None,
+                    "dish3_price": None,
+                    "dish4_price": None,
+                    "ship_fee": None,
                 })
                 continue
 
@@ -730,8 +733,11 @@ async def get_week_data(week_dates: list) -> list:
                 "voters": voters,
                 "picker_name": picker_name,
                 "menu_image": dv["menu_image"],
-                "price_override": dv["price_override"],
-                "ship_fee_override": dv["ship_fee_override"],
+                "dish1_price": dv["dish1_price"],
+                "dish2_price": dv["dish2_price"],
+                "dish3_price": dv["dish3_price"],
+                "dish4_price": dv["dish4_price"],
+                "ship_fee": dv["ship_fee"],
             })
 
     return results
