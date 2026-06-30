@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import calendar
 import logging
 import re
 import pytz
@@ -38,6 +39,20 @@ def _previous_month(tz: str = config.TIMEZONE) -> str:
     return last_day_prev.strftime("%Y-%m")
 
 
+def _billing_month(now: datetime | None = None, tz: str = config.TIMEZONE) -> str:
+    """Tháng đang được chốt tiền — xem handlers/payment._billing_month.
+
+    Ngày cuối tháng → tháng hiện tại; các ngày khác → tháng liền trước.
+    """
+    if now is None:
+        now = datetime.now(pytz.timezone(tz))
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    if now.day == last_day:
+        return now.strftime("%Y-%m")
+    last_day_prev = now.replace(day=1) - timedelta(days=1)
+    return last_day_prev.strftime("%Y-%m")
+
+
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id not in config.ADMIN_IDS:
         return
@@ -51,7 +66,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         year_month = f"{m.group(2)}-{m.group(1)}"
     else:
-        year_month = _previous_month()
+        year_month = _billing_month()
 
     rows = await db.get_monthly_summary(year_month)
 
@@ -85,7 +100,7 @@ async def my_money(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         year_month = f"{m.group(2)}-{m.group(1)}"
     else:
-        year_month = _previous_month()
+        year_month = _billing_month()
 
     rows = await db.get_monthly_summary(year_month)
 

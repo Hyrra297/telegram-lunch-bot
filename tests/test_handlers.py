@@ -155,6 +155,56 @@ class TestPreviousMonth:
         assert prev != _current_month()
 
 
+class TestBillingMonth:
+    """_billing_month: ngày cuối tháng → tháng hiện tại; ngày khác → tháng trước.
+    Khớp với job tổng kết 14:00 (gửi bảng tháng hiện tại đúng ngày cuối tháng)."""
+
+    def test_last_day_of_month_returns_current_month(self):
+        from datetime import datetime
+        from handlers.payment import _billing_month
+        # 30/06/2026 là ngày cuối tháng 6 → trả tháng 6
+        assert _billing_month(datetime(2026, 6, 30, 14, 11)) == "2026-06"
+
+    def test_normal_day_returns_previous_month(self):
+        from datetime import datetime
+        from handlers.payment import _billing_month
+        # 15/06/2026 → vẫn trỏ tháng 5 (tháng đã ăn xong)
+        assert _billing_month(datetime(2026, 6, 15, 9, 0)) == "2026-05"
+
+    def test_first_day_of_month_returns_previous_month(self):
+        from datetime import datetime
+        from handlers.payment import _billing_month
+        # 01/07/2026 → trả tháng 6
+        assert _billing_month(datetime(2026, 7, 1, 9, 0)) == "2026-06"
+
+    def test_last_day_january_returns_january(self):
+        from datetime import datetime
+        from handlers.payment import _billing_month
+        assert _billing_month(datetime(2026, 1, 31, 14, 0)) == "2026-01"
+
+    def test_mid_january_returns_previous_december(self):
+        from datetime import datetime
+        from handlers.payment import _billing_month
+        # 15/01/2026 → tháng 12/2025 (qua năm)
+        assert _billing_month(datetime(2026, 1, 15, 9, 0)) == "2025-12"
+
+    def test_last_day_february_leap_year(self):
+        from datetime import datetime
+        from handlers.payment import _billing_month
+        # 2028 nhuận: 29/02 là ngày cuối → trả tháng 2
+        assert _billing_month(datetime(2028, 2, 29, 14, 0)) == "2028-02"
+        # 28/02/2028 chưa phải cuối tháng → trả tháng 1
+        assert _billing_month(datetime(2028, 2, 28, 14, 0)) == "2028-01"
+
+    def test_summary_billing_month_matches_payment(self):
+        from datetime import datetime
+        from handlers.summary import _billing_month as sb
+        from handlers.payment import _billing_month as pb
+        for d in [datetime(2026, 6, 30, 14, 0), datetime(2026, 6, 15, 9, 0),
+                  datetime(2026, 1, 15, 9, 0)]:
+            assert sb(d) == pb(d)
+
+
 # ── handlers/vote.py — handle_vote_callback ───────────────────────────────────
 
 class _FakeUser:

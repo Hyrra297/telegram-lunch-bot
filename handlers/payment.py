@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import calendar
 import logging
 import pytz
 from datetime import datetime, timedelta
@@ -35,6 +36,22 @@ def _previous_month(tz: str = config.TIMEZONE) -> str:
     return last_day_prev.strftime("%Y-%m")
 
 
+def _billing_month(now: datetime | None = None, tz: str = config.TIMEZONE) -> str:
+    """Tháng đang được chốt tiền.
+
+    Ngày cuối tháng (job tổng kết 14:00 gửi bảng *tháng hiện tại*) → tháng hiện tại;
+    các ngày khác → tháng dương lịch liền trước (đang trả cho tháng đã ăn xong).
+    Nhờ vậy /dong_tien và /summary khớp đúng tháng mà nhóm vừa nhận tổng kết.
+    """
+    if now is None:
+        now = datetime.now(pytz.timezone(tz))
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    if now.day == last_day:
+        return now.strftime("%Y-%m")
+    last_day_prev = now.replace(day=1) - timedelta(days=1)
+    return last_day_prev.strftime("%Y-%m")
+
+
 def _month_label(year_month: str) -> str:
     year, m = year_month.split("-")
     return f"tháng {int(m)}/{year}"
@@ -42,7 +59,7 @@ def _month_label(year_month: str) -> str:
 
 async def dong_tien(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    year_month = _previous_month()
+    year_month = _billing_month()
     paid_ids = await db.get_paid_user_ids(year_month)
     is_private = update.effective_chat.type == "private"
 
