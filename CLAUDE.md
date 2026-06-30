@@ -30,7 +30,7 @@ python bot.py
 ## Lịch tự động (scheduler)
 | Giờ | Ngày | Hành động |
 |---|---|---|
-| 19:00 | CN–T4 | Tạo vote cho ngày hôm sau (T2–T5), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin**. T5 không tạo vote cho T6 — T6 do job 08:30 đảm nhận |
+| 18:30 | CN–T4 | Tạo vote cho ngày hôm sau (T2–T5), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin**. T5 không tạo vote cho T6 — T6 do job 08:30 đảm nhận |
 | 20:00 | CN–T4 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai. Không chạy T5 (không digest trước thứ 6) |
 | 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). **T6: đây là job DUY NHẤT tạo vote bún đậu** (caption `🍜 Thực đơn bún đậu hôm nay`, poll `🥢 Hôm nay ăn bún đậu gì?`) |
 | 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền |
@@ -38,7 +38,7 @@ python bot.py
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
 | 15:00 | T6 | **`friday_settle`**: gọi `snapshot_day_costs(date)` — tính và khoá tiền từng người vào `vote_entries.cost` (mỗi người = giá món + ship/số người). Im lặng (không gửi tin) |
 
-Mọi ngày T2–T5 đều tạo vote từ 19:00 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc 08:30 sáng T6 (không tạo tối T5, không digest tối T5). Job 08:30
+Mọi ngày T2–T5 đều tạo vote từ 18:30 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc 08:30 sáng T6 (không tạo tối T5, không digest tối T5). Job 08:30
 là lưới an toàn cho T2–T5 (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và là job chính cho T6.
 Ngoài ra: **sau digest gửi admin lúc 20:00 tối hôm trước**, mọi thay đổi vote cho ngày
 đó (đặt mới, đổi món, huỷ) đều được nhắn riêng admin real-time (không vào nhóm) cho tới
@@ -50,13 +50,13 @@ báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers
 
 **Template bún đậu mặc định**: Mỗi thứ 6 lúc 08:30, job morning gọi `db.apply_friday_template(date)` để tự áp menu bún đậu cố định — không cần admin làm gì. Template lưu ở `settings.friday_template` (JSON: `{"dishes": [...], "prices": [...], "ship_fee": int, "menu_image": "fri.jpg"}`). Hàm chỉ áp nếu ngày đó **chưa có món** — nếu admin đã set món khác qua web (override) hoặc dùng `/skip_today`, template không ghi đè. Để đổi menu bún đậu mặc định: cập nhật giá trị setting `friday_template` trong DB (không cần deploy lại). Ảnh dùng lại `fri.jpg` (upload một lần, tái sử dụng mỗi tuần).
 
-Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (19:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (20:00)
+Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (18:30), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (20:00)
 
 ## Cấu trúc file quan trọng
 - `bot.py` — entry point bot, đăng ký handlers + `set_my_commands`
 - `config.py` — đọc `.env`
 - `database.py` — toàn bộ SQL queries
-- `scheduler.py` — 6 jobs: open_vote_evening (19:00 CN–T4), admin_digest (20:00 CN–T4), morning (08:30 T2–T6), announce_roles (10:30 T2–T6), friday_settle (15:00 T6), monthly_summary (14:00)
+- `scheduler.py` — 6 jobs: open_vote_evening (18:30 CN–T4), admin_digest (20:00 CN–T4), morning (08:30 T2–T6), announce_roles (10:30 T2–T6), friday_settle (15:00 T6), monthly_summary (14:00)
 - `admin_notify.py` — thông báo vote riêng cho admin (digest + real-time), gửi vào chat với bot
 - `image_summary.py` — render bảng tổng kết tiền cơm thành ảnh PNG (Pillow + font DejaVuSans)
 - `handlers/vote.py` — open/close vote, poll answer, inline keyboard fallback

@@ -324,12 +324,12 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         return h, m
 
     morning_h, morning_m = _hm(config.VOTE_OPEN_TIME)      # 08:30
-    evening_h, evening_m = _hm(config.EVENING_OPEN_TIME)   # 19:00
+    evening_h, evening_m = _hm(config.EVENING_OPEN_TIME)   # 18:30
     announce_h, announce_m = _hm(config.ANNOUNCE_TIME)     # 10:30
     digest_h, digest_m = _hm(config.ADMIN_DIGEST_TIME)     # 20:00
 
     scheduler = AsyncIOScheduler(timezone=tz)
-    # 19:00 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job 08:30 tạo
+    # 18:30 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job 08:30 tạo
     scheduler.add_job(
         _scheduled_open_vote,
         trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed", timezone=tz),

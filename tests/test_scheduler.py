@@ -212,7 +212,7 @@ class TestConfig:
         import importlib
         import config as config_mod
         importlib.reload(config_mod)
-        assert config_mod.EVENING_OPEN_TIME == "19:00"
+        assert config_mod.EVENING_OPEN_TIME == "18:30"
 
 
 # ── build_scheduler ───────────────────────────────────────────────────────────
@@ -231,7 +231,8 @@ class TestBuildScheduler:
         sched = build_scheduler(object())
         jobs = {j.id: j for j in sched.get_jobs()}
         trig = str(jobs["open_vote_evening"].trigger)
-        assert "hour='19'" in trig
+        assert "hour='18'" in trig
+        assert "minute='30'" in trig
         assert "day_of_week='sun,mon,tue,wed'" in trig
         assert "thu" not in trig
 
