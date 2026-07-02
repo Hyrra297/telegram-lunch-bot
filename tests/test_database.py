@@ -497,6 +497,22 @@ class TestFridayTemplate:
         await db.set_setting("friday_template", "{not json")
         assert await db.apply_friday_template("2026-01-02") is False
 
+    async def test_apply_copies_previous_friday_not_template(self, db):
+        import json
+        await db.set_setting("friday_template", json.dumps(
+            {"dishes": ["TPL"], "prices": [1], "ship_fee": 20000, "menu_image": "t.jpg"}))
+        await db.save_menu_items("2026-06-26", ["Prev1", "Prev2"])
+        await db.set_day_dish_prices("2026-06-26", [35000, 40000])
+        await db.set_day_ship("2026-06-26", 15000)
+        await db.set_menu_image("2026-06-26", "fri.jpg")
+        applied = await db.apply_friday_template("2026-07-03")
+        assert applied is True
+        assert await db.get_menu_items("2026-07-03") == ["Prev1", "Prev2"]
+        dv = await db.get_daily_vote("2026-07-03")
+        assert dv["dish1_price"] == 35000
+        assert dv["ship_fee"] == 15000          # copy từ thứ 6 trước, KHÔNG phải template
+        assert dv["menu_image"] == "fri.jpg"
+
 
 class TestFridaySource:
     async def test_copies_previous_friday(self, db):

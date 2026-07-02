@@ -347,27 +347,21 @@ async def get_friday_source(date: str) -> Optional[dict]:
 
 
 async def apply_friday_template(date: str) -> bool:
-    """Áp menu bún đậu mặc định (settings.friday_template, JSON) vào `date`.
-    Chỉ áp khi ngày đó CHƯA có món (admin override thắng).
-    Trả True nếu đã áp; False nếu thiếu template / JSON lỗi / đã có món."""
-    raw = await get_setting("friday_template")
-    if not raw:
-        return False
-    try:
-        tpl = json.loads(raw)
-    except (ValueError, TypeError):
-        return False
-    dishes = tpl.get("dishes") or []
-    if not dishes:
-        return False
+    """Áp menu bún đậu cho thứ 6 (`date`): ưu tiên copy thứ 6 gần nhất có món,
+    fallback settings.friday_template (xem get_friday_source). Chỉ áp khi ngày đó
+    CHƯA có món (admin override thắng). Trả True nếu đã áp; False nếu đã có món /
+    không có nguồn."""
     if await get_menu_items(date):
         return False  # admin đã set món → không ghi đè
-    await save_menu_items(date, dishes)
-    await set_day_dish_prices(date, tpl.get("prices") or [])
-    ship = tpl.get("ship_fee")
+    src = await get_friday_source(date)
+    if not src or not src.get("dishes"):
+        return False
+    await save_menu_items(date, src["dishes"])
+    await set_day_dish_prices(date, src.get("prices") or [])
+    ship = src.get("ship_fee")
     if ship is not None:
         await set_day_ship(date, int(ship))
-    image = tpl.get("menu_image")
+    image = src.get("menu_image")
     if image:
         await set_menu_image(date, image)
     return True
