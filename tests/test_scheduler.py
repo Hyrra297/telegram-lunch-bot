@@ -300,6 +300,13 @@ class TestFridayWording:
         w = _open_vote_wording(0)  # backward-compat: không truyền date
         assert w["caption"] == "🍽️ Thực đơn hôm nay"
 
+    def test_friday_evening_uses_ngay_mai(self):
+        from scheduler import _open_vote_wording
+        w = _open_vote_wording(1, "2026-01-02")  # thứ 6, tạo tối hôm trước
+        assert w["day_label"] == "ngày mai"
+        assert w["caption"] == "🍜 Thực đơn bún đậu ngày mai"
+        assert w["poll_question"] == "🥢 Ngày mai ăn bún đậu gì?"
+
 
 class TestAnnounceRoles:
     async def _setup_two_voters(self, db, date):

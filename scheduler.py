@@ -30,6 +30,12 @@ def _is_friday(date_str: str) -> bool:
 def _open_vote_wording(day_offset: int, date_str: str | None = None) -> dict:
     """Chữ hiển thị tuỳ vote tạo cho hôm nay hay ngày mai; thứ 6 dùng wording bún đậu."""
     if date_str and _is_friday(date_str):
+        if day_offset >= 1:
+            return {
+                "caption": "🍜 Thực đơn bún đậu ngày mai",
+                "poll_question": "🥢 Ngày mai ăn bún đậu gì?",
+                "day_label": "ngày mai",
+            }
         return {
             "caption": "🍜 Thực đơn bún đậu hôm nay",
             "poll_question": "🥢 Hôm nay ăn bún đậu gì?",
