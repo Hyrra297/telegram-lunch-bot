@@ -30,6 +30,12 @@ def _is_friday(date_str: str) -> bool:
 def _open_vote_wording(day_offset: int, date_str: str | None = None) -> dict:
     """Chữ hiển thị tuỳ vote tạo cho hôm nay hay ngày mai; thứ 6 dùng wording bún đậu."""
     if date_str and _is_friday(date_str):
+        if day_offset >= 1:
+            return {
+                "caption": "🍜 Thực đơn bún đậu ngày mai",
+                "poll_question": "🥢 Ngày mai ăn bún đậu gì?",
+                "day_label": "ngày mai",
+            }
         return {
             "caption": "🍜 Thực đơn bún đậu hôm nay",
             "poll_question": "🥢 Hôm nay ăn bún đậu gì?",
@@ -329,7 +335,7 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
     digest_h, digest_m = _hm(config.ADMIN_DIGEST_TIME)     # 20:00
 
     scheduler = AsyncIOScheduler(timezone=tz)
-    # 18:30 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job 08:30 tạo
+    # 18:30 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job open_vote_friday (20:00 T5) tạo
     scheduler.add_job(
         _scheduled_open_vote,
         trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed", timezone=tz),
@@ -347,7 +353,7 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         trigger=CronTrigger(hour=announce_h, minute=announce_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="announce_roles", replace_existing=True, misfire_grace_time=300,
     )
-    # 20:00 CN-T4: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2; bỏ T5 vì T6 không tạo vote tối)
+    # 20:00 CN-T4: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2; bỏ T5 vì thứ 6 KHÔNG digest — vote thứ 6 do open_vote_friday tạo)
     scheduler.add_job(
         _scheduled_admin_digest,
         trigger=CronTrigger(hour=digest_h, minute=digest_m, day_of_week="sun,mon,tue,wed", timezone=tz),
@@ -364,5 +370,11 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         _scheduled_friday_settle,
         trigger=CronTrigger(hour=15, minute=0, day_of_week="fri", timezone=tz),
         args=[app], id="friday_settle", replace_existing=True, misfire_grace_time=300,
+    )
+    # 20:00 thứ 5: mở vote bún đậu cho thứ 6 (offset=1). Muộn hơn T2-T5 (18:30), KHÔNG digest.
+    scheduler.add_job(
+        _scheduled_open_vote,
+        trigger=CronTrigger(hour=20, minute=0, day_of_week="thu", timezone=tz),
+        args=[app, 1], id="open_vote_friday", replace_existing=True, misfire_grace_time=300,
     )
     return scheduler

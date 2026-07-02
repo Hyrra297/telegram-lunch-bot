@@ -30,19 +30,19 @@ python bot.py
 ## Lịch tự động (scheduler)
 | Giờ | Ngày | Hành động |
 |---|---|---|
-| 18:30 | CN–T4 | Tạo vote cho ngày hôm sau (T2–T5), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin**. T5 không tạo vote cho T6 — T6 do job 08:30 đảm nhận |
+| 18:30 | CN–T4 | Tạo vote cho ngày hôm sau (T2–T5), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin** |
+| 20:00 | T5 | **`open_vote_friday`**: tạo vote bún đậu cho **thứ 6** (offset=1, carryover menu từ thứ 6 trước), wording "ngày mai". Thứ 6 KHÔNG digest |
 | 20:00 | CN–T4 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai. Không chạy T5 (không digest trước thứ 6) |
-| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). **T6: đây là job DUY NHẤT tạo vote bún đậu** (caption `🍜 Thực đơn bún đậu hôm nay`, poll `🥢 Hôm nay ăn bún đậu gì?`) |
+| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). Thứ 6: giờ vote đã có từ 20:00 T5 → 08:30 chỉ **nhắc** như mọi ngày (job 08:30 vẫn là lưới an toàn nếu job 20:00 lỡ) |
 | 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền |
 | 10:30 | T6 | Đóng vote + **chỉ phân công 1 picker** đi lấy bún đậu (`🛵 @X đi lấy bún đậu`). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
 | 15:00 | T6 | **`friday_settle`**: gọi `snapshot_day_costs(date)` — tính và khoá tiền từng người vào `vote_entries.cost` (mỗi người = giá món + ship/số người). Im lặng (không gửi tin) |
 
-Mọi ngày T2–T5 đều tạo vote từ 18:30 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc 08:30 sáng T6 (không tạo tối T5, không digest tối T5). Job 08:30
-là lưới an toàn cho T2–T5 (tạo bù nếu job tối lỡ — vẫn yêu cầu có ảnh) và là job chính cho T6.
+Mọi ngày T2–T5 đều tạo vote từ 18:30 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc **20:00 tối thứ 5** (job `open_vote_friday`, carryover menu từ thứ 6 trước), KHÔNG digest. Job 08:30 thứ 6 khi đó chỉ **nhắc** số người đặt như các ngày khác (và là lưới an toàn tạo bù nếu job 20:00 lỡ).
 Ngoài ra: **sau digest gửi admin lúc 20:00 tối hôm trước**, mọi thay đổi vote cho ngày
 đó (đặt mới, đổi món, huỷ) đều được nhắn riêng admin real-time (không vào nhóm) cho tới
-khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm trước. T6: real-time notify hoạt động từ 08:30–10:30 (sau khi vote được tạo). Trước mốc digest không
+khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm trước. T6: real-time notify hoạt động từ **20:00 thứ 5**–10:30 thứ 6 (sau khi vote được tạo 20:00 T5). Trước mốc digest không
 báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers/vote.py`
 (so giờ với `ADMIN_DIGEST_TIME` của tối hôm trước); mẫu tin trong `admin_notify.py`.
 

@@ -222,7 +222,7 @@ class TestBuildScheduler:
         from scheduler import build_scheduler
         sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
         ids = {j.id for j in sched.get_jobs()}
-        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
+        assert ids == {"open_vote_evening", "open_vote_friday", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
         assert "vote_reminder" not in ids
         assert "open_vote" not in ids
 
@@ -270,6 +270,17 @@ class TestBuildScheduler:
         assert "hour='15'" in trig
         assert "day_of_week='fri'" in trig
 
+    def test_friday_open_job(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        assert "open_vote_friday" in jobs
+        trig = str(jobs["open_vote_friday"].trigger)
+        assert "hour='20'" in trig
+        assert "minute='0'" in trig
+        assert "day_of_week='thu'" in trig
+        assert jobs["open_vote_friday"].args[1] == 1
+
 
 class TestIsFriday:
     def test_friday_true(self):
@@ -299,6 +310,13 @@ class TestFridayWording:
         from scheduler import _open_vote_wording
         w = _open_vote_wording(0)  # backward-compat: không truyền date
         assert w["caption"] == "🍽️ Thực đơn hôm nay"
+
+    def test_friday_evening_uses_ngay_mai(self):
+        from scheduler import _open_vote_wording
+        w = _open_vote_wording(1, "2026-01-02")  # thứ 6, tạo tối hôm trước
+        assert w["day_label"] == "ngày mai"
+        assert w["caption"] == "🍜 Thực đơn bún đậu ngày mai"
+        assert w["poll_question"] == "🥢 Ngày mai ăn bún đậu gì?"
 
 
 class TestAnnounceRoles:
