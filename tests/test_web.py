@@ -165,3 +165,64 @@ async def test_toggle_paid_success(web_app, admin_cookie):
     data = resp.json()
     assert data["ok"] is True
     assert data["paid"] is True
+
+
+# ── Friday preview overlay ────────────────────────────────────────────────────
+
+async def test_friday_preview_overlays_from_previous_friday(web_app):
+    import database as db_mod
+    from web.app import _apply_friday_preview
+    await db_mod.init_db()
+    await db_mod.save_menu_items("2026-06-26", ["Bún đậu(35k)", "Bún đậu(40k)"])
+    await db_mod.set_day_dish_prices("2026-06-26", [35000, 40000])
+    await db_mod.set_day_ship("2026-06-26", 20000)
+    await db_mod.set_menu_image("2026-06-26", "fri.jpg")
+    week_days = [{
+        "weekday": "Thứ 6", "date": "2026-07-03", "status": "none",
+        "dish1_price": None, "dish2_price": None, "dish3_price": None,
+        "dish4_price": None, "ship_fee": None, "menu_image": "fri.png",
+    }]
+    week_menu = {"2026-07-03": ["", "", "", ""]}
+    await _apply_friday_preview(week_days, week_menu)
+    assert week_menu["2026-07-03"][:2] == ["Bún đậu(35k)", "Bún đậu(40k)"]
+    assert week_days[0]["dish1_price"] == 35000
+    assert week_days[0]["dish2_price"] == 40000
+    assert week_days[0]["ship_fee"] == 20000
+    assert week_days[0]["menu_image"] == "fri.jpg"   # stray fri.png bị ghi đè bằng nguồn
+    assert week_days[0]["is_template_preview"] is True
+
+
+async def test_friday_preview_falls_back_to_template(web_app):
+    import json
+    import database as db_mod
+    from web.app import _apply_friday_preview
+    await db_mod.init_db()
+    await db_mod.set_setting("friday_template", json.dumps(
+        {"dishes": ["Bún đậu TPL"], "prices": [35000], "ship_fee": 20000, "menu_image": "fri.jpg"}))
+    week_days = [{
+        "weekday": "Thứ 6", "date": "2026-07-03", "status": "none",
+        "dish1_price": None, "dish2_price": None, "dish3_price": None,
+        "dish4_price": None, "ship_fee": None, "menu_image": None,
+    }]
+    week_menu = {"2026-07-03": ["", "", "", ""]}
+    await _apply_friday_preview(week_days, week_menu)
+    assert week_menu["2026-07-03"][0] == "Bún đậu TPL"
+    assert week_days[0]["is_template_preview"] is True
+
+
+async def test_friday_preview_skips_when_dishes_exist(web_app):
+    import database as db_mod
+    from web.app import _apply_friday_preview
+    await db_mod.init_db()
+    await db_mod.save_menu_items("2026-06-26", ["Bún đậu"])
+    await db_mod.set_day_dish_prices("2026-06-26", [35000])
+    week_days = [{
+        "weekday": "Thứ 6", "date": "2026-07-03", "status": "open",
+        "dish1_price": 99000, "dish2_price": None, "dish3_price": None,
+        "dish4_price": None, "ship_fee": 5000, "menu_image": "admin.jpg",
+    }]
+    week_menu = {"2026-07-03": ["Món admin", "", "", ""]}
+    await _apply_friday_preview(week_days, week_menu)
+    assert week_menu["2026-07-03"] == ["Món admin", "", "", ""]     # giữ nguyên
+    assert week_days[0]["dish1_price"] == 99000
+    assert "is_template_preview" not in week_days[0]

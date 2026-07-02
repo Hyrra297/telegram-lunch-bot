@@ -98,6 +98,30 @@ def _parse_int(s: str):
     return int(s) if s.isdigit() else None
 
 
+async def _apply_friday_preview(week_days: list, week_menu: dict) -> None:
+    """Overlay menu bún đậu (thứ 6 gần nhất / template) vào ô Thứ 6 chưa có món.
+    Chỉ để HIỂN THỊ preview trên web — không ghi DB. Mutate tại chỗ."""
+    for day in week_days:
+        if day.get("weekday") != "Thứ 6":
+            continue
+        date = day["date"]
+        if any(week_menu.get(date, [])):
+            continue  # thứ 6 đã có món (admin set / đã materialize) → không preview
+        src = await db.get_friday_source(date)
+        if not src or not src.get("dishes"):
+            continue
+        dishes = (list(src["dishes"]) + ["", "", "", ""])[:4]
+        prices = (list(src.get("prices") or []) + [None, None, None, None])[:4]
+        week_menu[date] = dishes
+        (day["dish1_price"], day["dish2_price"],
+         day["dish3_price"], day["dish4_price"]) = prices
+        if src.get("ship_fee") is not None:
+            day["ship_fee"] = src["ship_fee"]
+        if src.get("menu_image"):
+            day["menu_image"] = src["menu_image"]
+        day["is_template_preview"] = True
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -118,6 +142,7 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     for d in week_dates:
         items = await db.get_menu_items(d)
         week_menu[d] = items + [""] * (4 - len(items))  # pad to 4 slots
+    await _apply_friday_preview(week_days, week_menu)
     detail = await db.get_monthly_detail(month, max_date=max_date)
 
     paid_ids = await db.get_paid_user_ids(month)

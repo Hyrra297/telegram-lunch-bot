@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date as dt_date
+from datetime import date as dt_date, timedelta
 from typing import Optional
 import json
 import aiosqlite
@@ -302,28 +302,66 @@ async def set_day_ship(date: str, ship_fee: int) -> None:
         await db.commit()
 
 
-async def apply_friday_template(date: str) -> bool:
-    """Áp menu bún đậu mặc định (settings.friday_template, JSON) vào `date`.
-    Chỉ áp khi ngày đó CHƯA có món (admin override thắng).
-    Trả True nếu đã áp; False nếu thiếu template / JSON lỗi / đã có món."""
+async def get_friday_template() -> Optional[dict]:
+    """Parse settings.friday_template (JSON) → dict hoặc None (thiếu/hỏng/không có món)."""
     raw = await get_setting("friday_template")
     if not raw:
-        return False
+        return None
     try:
         tpl = json.loads(raw)
     except (ValueError, TypeError):
-        return False
+        return None
     dishes = tpl.get("dishes") or []
     if not dishes:
-        return False
+        return None
+    return {
+        "dishes": list(dishes),
+        "prices": list(tpl.get("prices") or []),
+        "ship_fee": tpl.get("ship_fee"),
+        "menu_image": tpl.get("menu_image"),
+    }
+
+
+async def get_friday_source(date: str) -> Optional[dict]:
+    """Menu bún đậu cho `date` (giả định là thứ 6): ưu tiên thứ 6 gần nhất TRƯỚC
+    `date` có món (copy dishes/prices/ship/ảnh); nếu không có → friday_template.
+    Ghép cặp (dishN, dishN_price) theo slot rồi lọc slot món rỗng để giá khỏi lệch.
+    Trả {dishes, prices, ship_fee, menu_image} hoặc None."""
+    d = dt_date.fromisoformat(date)
+    for k in range(1, 9):  # lùi tối đa 8 tuần → luôn trúng thứ 6
+        cand = (d - timedelta(days=7 * k)).isoformat()
+        row = await get_daily_vote(cand)
+        if row and row.get("dish1"):
+            pairs = [
+                (row[f"dish{i}"], row[f"dish{i}_price"])
+                for i in range(1, 5)
+                if row.get(f"dish{i}")
+            ]
+            return {
+                "dishes": [dish for dish, _ in pairs],
+                "prices": [price for _, price in pairs],
+                "ship_fee": row.get("ship_fee"),
+                "menu_image": row.get("menu_image"),
+            }
+    return await get_friday_template()
+
+
+async def apply_friday_template(date: str) -> bool:
+    """Áp menu bún đậu cho thứ 6 (`date`): ưu tiên copy thứ 6 gần nhất có món,
+    fallback settings.friday_template (xem get_friday_source). Chỉ áp khi ngày đó
+    CHƯA có món (admin override thắng). Trả True nếu đã áp; False nếu đã có món /
+    không có nguồn."""
     if await get_menu_items(date):
         return False  # admin đã set món → không ghi đè
-    await save_menu_items(date, dishes)
-    await set_day_dish_prices(date, tpl.get("prices") or [])
-    ship = tpl.get("ship_fee")
+    src = await get_friday_source(date)
+    if not src or not src.get("dishes"):
+        return False
+    await save_menu_items(date, src["dishes"])
+    await set_day_dish_prices(date, src.get("prices") or [])
+    ship = src.get("ship_fee")
     if ship is not None:
         await set_day_ship(date, int(ship))
-    image = tpl.get("menu_image")
+    image = src.get("menu_image")
     if image:
         await set_menu_image(date, image)
     return True

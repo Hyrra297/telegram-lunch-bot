@@ -496,3 +496,60 @@ class TestFridayTemplate:
     async def test_returns_false_when_bad_json(self, db):
         await db.set_setting("friday_template", "{not json")
         assert await db.apply_friday_template("2026-01-02") is False
+
+    async def test_apply_copies_previous_friday_not_template(self, db):
+        import json
+        await db.set_setting("friday_template", json.dumps(
+            {"dishes": ["TPL"], "prices": [1], "ship_fee": 20000, "menu_image": "t.jpg"}))
+        await db.save_menu_items("2026-06-26", ["Prev1", "Prev2"])
+        await db.set_day_dish_prices("2026-06-26", [35000, 40000])
+        await db.set_day_ship("2026-06-26", 15000)
+        await db.set_menu_image("2026-06-26", "fri.jpg")
+        applied = await db.apply_friday_template("2026-07-03")
+        assert applied is True
+        assert await db.get_menu_items("2026-07-03") == ["Prev1", "Prev2"]
+        dv = await db.get_daily_vote("2026-07-03")
+        assert dv["dish1_price"] == 35000
+        assert dv["ship_fee"] == 15000          # copy từ thứ 6 trước, KHÔNG phải template
+        assert dv["menu_image"] == "fri.jpg"
+
+
+class TestFridaySource:
+    async def test_copies_previous_friday(self, db):
+        await db.save_menu_items("2026-06-26", ["A", "B"])
+        await db.set_day_dish_prices("2026-06-26", [35000, 40000])
+        await db.set_day_ship("2026-06-26", 20000)
+        await db.set_menu_image("2026-06-26", "fri.jpg")
+        src = await db.get_friday_source("2026-07-03")  # thứ 6 kế tiếp
+        assert src["dishes"] == ["A", "B"]
+        assert src["prices"] == [35000, 40000]
+        assert src["ship_fee"] == 20000
+        assert src["menu_image"] == "fri.jpg"
+
+    async def test_prefers_previous_friday_over_template(self, db):
+        import json
+        await db.set_setting("friday_template", json.dumps(
+            {"dishes": ["TPL"], "prices": [1], "ship_fee": 0, "menu_image": "t.jpg"}))
+        await db.save_menu_items("2026-06-26", ["Prev"])
+        await db.set_day_dish_prices("2026-06-26", [50000])
+        src = await db.get_friday_source("2026-07-03")
+        assert src["dishes"] == ["Prev"]
+        assert src["prices"] == [50000]
+
+    async def test_skips_friday_without_dishes(self, db):
+        # 06-26 không có món; 06-19 (xa hơn 1 tuần) có món
+        await db.save_menu_items("2026-06-19", ["Xa"])
+        await db.set_day_dish_prices("2026-06-19", [45000])
+        src = await db.get_friday_source("2026-07-03")
+        assert src["dishes"] == ["Xa"]
+
+    async def test_falls_back_to_template(self, db):
+        import json
+        await db.set_setting("friday_template", json.dumps(
+            {"dishes": ["TPL"], "prices": [1], "ship_fee": 20000, "menu_image": "t.jpg"}))
+        src = await db.get_friday_source("2026-07-03")
+        assert src["dishes"] == ["TPL"]
+        assert src["menu_image"] == "t.jpg"
+
+    async def test_none_when_nothing(self, db):
+        assert await db.get_friday_source("2026-07-03") is None
