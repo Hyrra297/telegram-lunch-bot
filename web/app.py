@@ -115,8 +115,10 @@ async def _apply_friday_preview(week_days: list, week_menu: dict) -> None:
         week_menu[date] = dishes
         (day["dish1_price"], day["dish2_price"],
          day["dish3_price"], day["dish4_price"]) = prices
-        day["ship_fee"] = src.get("ship_fee")
-        day["menu_image"] = src.get("menu_image")
+        if src.get("ship_fee") is not None:
+            day["ship_fee"] = src["ship_fee"]
+        if src.get("menu_image"):
+            day["menu_image"] = src["menu_image"]
         day["is_template_preview"] = True
 
 

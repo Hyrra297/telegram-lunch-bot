@@ -180,7 +180,7 @@ async def test_friday_preview_overlays_from_previous_friday(web_app):
     week_days = [{
         "weekday": "Thứ 6", "date": "2026-07-03", "status": "none",
         "dish1_price": None, "dish2_price": None, "dish3_price": None,
-        "dish4_price": None, "ship_fee": None, "menu_image": None,
+        "dish4_price": None, "ship_fee": None, "menu_image": "fri.png",
     }]
     week_menu = {"2026-07-03": ["", "", "", ""]}
     await _apply_friday_preview(week_days, week_menu)
@@ -188,7 +188,25 @@ async def test_friday_preview_overlays_from_previous_friday(web_app):
     assert week_days[0]["dish1_price"] == 35000
     assert week_days[0]["dish2_price"] == 40000
     assert week_days[0]["ship_fee"] == 20000
-    assert week_days[0]["menu_image"] == "fri.jpg"
+    assert week_days[0]["menu_image"] == "fri.jpg"   # stray fri.png bị ghi đè bằng nguồn
+    assert week_days[0]["is_template_preview"] is True
+
+
+async def test_friday_preview_falls_back_to_template(web_app):
+    import json
+    import database as db_mod
+    from web.app import _apply_friday_preview
+    await db_mod.init_db()
+    await db_mod.set_setting("friday_template", json.dumps(
+        {"dishes": ["Bún đậu TPL"], "prices": [35000], "ship_fee": 20000, "menu_image": "fri.jpg"}))
+    week_days = [{
+        "weekday": "Thứ 6", "date": "2026-07-03", "status": "none",
+        "dish1_price": None, "dish2_price": None, "dish3_price": None,
+        "dish4_price": None, "ship_fee": None, "menu_image": None,
+    }]
+    week_menu = {"2026-07-03": ["", "", "", ""]}
+    await _apply_friday_preview(week_days, week_menu)
+    assert week_menu["2026-07-03"][0] == "Bún đậu TPL"
     assert week_days[0]["is_template_preview"] is True
 
 
