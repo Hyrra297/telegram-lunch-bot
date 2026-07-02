@@ -222,7 +222,7 @@ class TestBuildScheduler:
         from scheduler import build_scheduler
         sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
         ids = {j.id for j in sched.get_jobs()}
-        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
+        assert ids == {"open_vote_evening", "open_vote_friday", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
         assert "vote_reminder" not in ids
         assert "open_vote" not in ids
 
@@ -269,6 +269,17 @@ class TestBuildScheduler:
         trig = str(jobs["friday_settle"].trigger)
         assert "hour='15'" in trig
         assert "day_of_week='fri'" in trig
+
+    def test_friday_open_job(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        assert "open_vote_friday" in jobs
+        trig = str(jobs["open_vote_friday"].trigger)
+        assert "hour='20'" in trig
+        assert "minute='0'" in trig
+        assert "day_of_week='thu'" in trig
+        assert jobs["open_vote_friday"].args[1] == 1
 
 
 class TestIsFriday:

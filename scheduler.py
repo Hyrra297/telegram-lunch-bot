@@ -371,4 +371,10 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         trigger=CronTrigger(hour=15, minute=0, day_of_week="fri", timezone=tz),
         args=[app], id="friday_settle", replace_existing=True, misfire_grace_time=300,
     )
+    # 20:00 thứ 5: mở vote bún đậu cho thứ 6 (offset=1). Muộn hơn T2-T5 (18:30), KHÔNG digest.
+    scheduler.add_job(
+        _scheduled_open_vote,
+        trigger=CronTrigger(hour=20, minute=0, day_of_week="thu", timezone=tz),
+        args=[app, 1], id="open_vote_friday", replace_existing=True, misfire_grace_time=300,
+    )
     return scheduler
