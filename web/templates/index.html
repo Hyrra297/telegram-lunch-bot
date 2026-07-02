@@ -502,6 +502,10 @@
             <span class="status-badge badge-none">⏳ Chưa mở vote</span>
           {% endif %}
 
+          {% if day.is_template_preview %}
+            <span class="status-badge" style="background:#fff7ed;color:#c2410c">🍜 Bún đậu (theo tuần trước)</span>
+          {% endif %}
+
           {# ── Menu image ── #}
           {% if day.menu_image %}
             <div class="menu-img-wrap" onclick="openLightbox('/static/menus/{{ day.menu_image }}')">
