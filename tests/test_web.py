@@ -146,6 +146,46 @@ async def test_save_menu_items_prices_align_after_empty_dish(web_app, admin_cook
     assert dv["dish3_price"] is None
 
 
+async def test_save_friday_menu_items_keeps_preview_image(web_app, admin_cookie):
+    """T6: lưu món cho thứ 6 (đang preview từ tuần trước) phải giữ luôn ảnh menu.
+    Nếu không, materialize món → preview tắt (đã có món) → ảnh biến mất."""
+    import database as db_mod
+    await db_mod.init_db()
+    # Thứ 6 tuần trước có bún đậu + ảnh (nguồn get_friday_source)
+    await db_mod.save_menu_items("2026-07-03", ["Bún đậu mắm tôm"])
+    await db_mod.set_menu_image("2026-07-03", "fri.jpg")
+
+    # Admin lưu form món thứ 6 tuần này (07-10) — form đang prefill từ preview,
+    # nhưng KHÔNG gửi kèm ảnh (ảnh không phải field của form)
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/save-menu-items", data={
+            "date": "2026-07-10",
+            "dish1": "Bún đậu mắm tôm", "price1": "40000",
+            "ship_fee": "15000",
+        })
+    assert resp.status_code == 200
+    dv = await db_mod.get_daily_vote("2026-07-10")
+    assert dv["menu_image"] == "fri.jpg"   # ảnh preview được kế thừa & lưu lại
+
+
+async def test_save_friday_menu_items_preserves_uploaded_image(web_app, admin_cookie):
+    """T6: nếu ngày đã có ảnh riêng (admin tự upload), lưu món KHÔNG ghi đè bằng ảnh tuần trước."""
+    import database as db_mod
+    await db_mod.init_db()
+    await db_mod.save_menu_items("2026-07-03", ["Bún đậu cũ"])
+    await db_mod.set_menu_image("2026-07-03", "fri.jpg")
+    # Ngày này admin đã upload ảnh riêng trước đó
+    await db_mod.set_menu_image("2026-07-10", "custom.jpg")
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/save-menu-items", data={
+            "date": "2026-07-10", "dish1": "Bún đậu mới", "price1": "40000",
+        })
+    assert resp.status_code == 200
+    dv = await db_mod.get_daily_vote("2026-07-10")
+    assert dv["menu_image"] == "custom.jpg"   # ảnh riêng được giữ nguyên
+
+
 # ── Toggle paid ───────────────────────────────────────────────────────────────
 
 async def test_toggle_paid_requires_auth(web_app):

@@ -248,6 +248,15 @@ async def save_menu_items_endpoint(
     ship = _parse_int(ship_fee)
     if ship is not None:
         await db.set_day_ship(date, ship)
+    # T6: form bún đậu prefill từ preview (get_friday_source) nhưng ảnh không phải
+    # field của form. Materialize món → preview tắt → ảnh biến mất. Kế thừa luôn ảnh
+    # nguồn nếu ngày chưa có ảnh riêng, để "lưu đúng cái đang thấy".
+    if datetime.strptime(date, "%Y-%m-%d").weekday() == 4:
+        dv = await db.get_daily_vote(date)
+        if not (dv and dv.get("menu_image")):
+            src = await db.get_friday_source(date)
+            if src and src.get("menu_image"):
+                await db.set_menu_image(date, src["menu_image"])
     return JSONResponse({"ok": True})
 
 
