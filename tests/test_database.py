@@ -464,12 +464,13 @@ class TestSummaryPerDish:
         assert amounts["An"] == 45000 + round(20000 / 2)   # 55000
         assert amounts["Binh"] == 55000
 
-    async def test_detail_biweekly_blocks(self, db):
-        """Gộp mỗi 2 tuần lịch thành 1 đợt; hàng tổng đúng theo từng đợt."""
+    async def test_detail_two_settlement_blocks(self, db):
+        """Tháng chỉ chia 2 đợt: tuần 1–2 và tuần 3–4 (gộp cả tuần 5 nếu có)."""
         await db.add_user(1, "An", "an")
-        # 4 tuần ISO khác nhau: 05(w2,seq0) 13(w3,seq1) 20(w4,seq2) 27(w5,seq3)
-        # → block 0 = seq 0,1 (05+13); block 1 = seq 2,3 (20+27)
-        dates = ["2026-01-05", "2026-01-13", "2026-01-20", "2026-01-27"]
+        # 5 tuần ISO khác nhau trong 2026-01:
+        # 02(w1,seq0) 05(w2,seq1) 12(w3,seq2) 19(w4,seq3) 26(w5,seq4)
+        # block=min(seq//2,1): seq0,1→0 ; seq2,3,4→1 (tuần 5 gộp vào đợt 2)
+        dates = ["2026-01-02", "2026-01-05", "2026-01-12", "2026-01-19", "2026-01-26"]
         for d in dates:
             await db.create_daily_vote(d, 100, 45000, 0)  # ship 0 → cost = price
             await db.toggle_vote(d, 1)
@@ -477,16 +478,19 @@ class TestSummaryPerDish:
         detail = await db.get_monthly_detail("2026-01")
 
         blocks_by_date = {d["date"]: d["block"] for d in detail["days"]}
+        assert blocks_by_date["2026-01-02"] == 0
         assert blocks_by_date["2026-01-05"] == 0
-        assert blocks_by_date["2026-01-13"] == 0
-        assert blocks_by_date["2026-01-20"] == 1
-        assert blocks_by_date["2026-01-27"] == 1
+        assert blocks_by_date["2026-01-12"] == 1
+        assert blocks_by_date["2026-01-19"] == 1
+        assert blocks_by_date["2026-01-26"] == 1  # tuần 5 gộp vào đợt 2
 
-        assert len(detail["blocks"]) == 2
+        assert len(detail["blocks"]) == 2  # không bao giờ có "tuần 5" riêng
         b0, b1 = detail["blocks"]
-        assert b0["total"] == 45000 * 2   # 05 + 13
-        assert b1["total"] == 45000 * 2   # 20 + 27
-        assert b0["per_member"]["An"] == 90000
+        assert b0["label"] == "Tuần 1–2"
+        assert b1["label"] == "Tuần 3–4"
+        assert b0["total"] == 45000 * 2   # 02 + 05
+        assert b1["total"] == 45000 * 3   # 12 + 19 + 26
+        assert b1["per_member"]["An"] == 135000
 
 
 class TestFridayTemplate:

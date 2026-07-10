@@ -580,7 +580,8 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
       "members": [{"full_name": str, "votes": {date: price}, "total": int}, ...],
       "blocks":  [{"block": int, "label": "Tuần 1–2", "per_member": {name: total}, "total": int}, ...]
     }
-    block = mỗi 2 tuần lịch (ISO) gộp thành 1 đợt để tính tổng.
+    block = 2 đợt chuyển tiền/tháng: đợt 0 = 2 tuần đầu (Tuần 1–2),
+    đợt 1 = tất cả tuần còn lại (Tuần 3–4, gộp cả tuần 5 nếu có).
     Only includes days with status='closed' and members who voted at least once.
     max_date: 'YYYY-MM-DD' upper bound (inclusive). If None, no upper bound.
     """
@@ -682,8 +683,9 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
         if key not in week_keys:
             week_keys.append(key)
     week_seq = {key: i for i, key in enumerate(week_keys)}
+    # Tháng chỉ chia 2 đợt chuyển tiền: đợt 0 = 2 tuần đầu; đợt 1 = tất cả còn lại
     for d in days:
-        d["block"] = week_seq[week_of_date[d["date"]]] // 2
+        d["block"] = min(week_seq[week_of_date[d["date"]]] // 2, 1)
 
     # Tổng tiền mỗi đợt: theo từng người + tổng đợt
     date_block = {d["date"]: d["block"] for d in days}
@@ -696,13 +698,12 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
             block_member_totals[b][name] += amount
             block_total[b] = block_total.get(b, 0) + amount
 
+    BLOCK_LABELS = {0: "Tuần 1–2", 1: "Tuần 3–4"}
     blocks = []
     for b in sorted(block_member_totals):
-        seqs = [i for i in range(len(week_keys)) if i // 2 == b]
-        label = f"Tuần {seqs[0] + 1}" if len(seqs) == 1 else f"Tuần {seqs[0] + 1}–{seqs[-1] + 1}"
         blocks.append({
             "block": b,
-            "label": label,
+            "label": BLOCK_LABELS.get(b, f"Đợt {b + 1}"),
             "per_member": block_member_totals[b],
             "total": block_total[b],
         })

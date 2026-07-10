@@ -3,9 +3,10 @@ import hashlib
 import hmac
 import os
 import time
+import calendar
 import pytz
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as dt_date
 from pathlib import Path
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -157,6 +158,14 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     year, m = month.split("-")
     month_label = f"Tháng {int(m)}/{year}"
 
+    # Tổng số ngày đi làm trong tháng (T2–T6, chưa trừ lễ/nghỉ)
+    _y, _m = int(year), int(m)
+    _days_in_month = calendar.monthrange(_y, _m)[1]
+    working_days = sum(
+        1 for _d in range(1, _days_in_month + 1)
+        if dt_date(_y, _m, _d).weekday() < 5
+    )
+
     today = datetime.now(pytz.timezone(config.TIMEZONE)).date()
     week_offset = 7 if today.weekday() == 6 else 0
     monday = today - timedelta(days=today.weekday()) + timedelta(days=week_offset)
@@ -180,6 +189,7 @@ async def index(request: Request, month: str = "", tab: str = "week"):
         "months": months,
         "week_days": week_days,
         "total_amount": total_amount,
+        "working_days": working_days,
         "qr_zalopay": _find_qr("zalopay"),
         "qr_bank": _find_qr("bank"),
         "week_menu": week_menu,
