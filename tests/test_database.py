@@ -464,6 +464,23 @@ class TestSummaryPerDish:
         assert amounts["An"] == 45000 + round(20000 / 2)   # 55000
         assert amounts["Binh"] == 55000
 
+    async def test_detail_excludes_zero_order_days(self, db):
+        """Ngày đã đóng nhưng 0 người đặt (skip/nghỉ lễ/cuối tuần) không tính là ngày có cơm."""
+        await db.add_user(1, "An", "an")
+        # Ngày có người đặt
+        await db.create_daily_vote("2026-01-05", 100, 45000, 0)
+        await db.toggle_vote("2026-01-05", 1)
+        await db.set_vote_closed("2026-01-05")
+        # Ngày đóng nhưng KHÔNG ai đặt (vd nghỉ lễ / skip)
+        await db.create_daily_vote("2026-01-06", 100, 45000, 0)
+        await db.set_vote_closed("2026-01-06")
+
+        detail = await db.get_monthly_detail("2026-01")
+        dates = [d["date"] for d in detail["days"]]
+        assert "2026-01-05" in dates
+        assert "2026-01-06" not in dates       # 0 suất → loại
+        assert len(detail["days"]) == 1
+
     async def test_detail_two_settlement_blocks(self, db):
         """Tháng chỉ chia 2 đợt: tuần 1–2 và tuần 3–4 (gộp cả tuần 5 nếu có)."""
         await db.add_user(1, "An", "an")

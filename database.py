@@ -669,6 +669,9 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
             "total": sum(votes.values()),
         })
 
+    # Chỉ giữ ngày THỰC SỰ có người đặt (bỏ ngày skip/nghỉ lễ/cuối tuần đã đóng nhưng 0 suất)
+    days = [d for d in days if day_voter_counts.get(d["date"], 0) > 0]
+
     # Số suất đặt mỗi ngày (số người vote hôm đó)
     for d in days:
         d["order_count"] = day_voter_counts.get(d["date"], 0)

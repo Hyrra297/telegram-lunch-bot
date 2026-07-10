@@ -676,7 +676,7 @@
               <tr class="subtotal-row">
                 <td class="td-name">📊 {{ blk.label }}</td>
                 {% for member in detail.members %}
-                <td>{% if blk.per_member.get(member.full_name) %}{{ blk.per_member[member.full_name] | format_vnd }}đ{% else %}—{% endif %}</td>
+                <td></td>
                 {% endfor %}
                 <td class="td-total">{{ blk.total | format_vnd }}đ</td>
               </tr>
