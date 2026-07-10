@@ -576,9 +576,11 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
     """
     Returns a matrix of who paid what each day.
     {
-      "days":    [{"date": "YYYY-MM-DD", "date_short": "DD/MM", "weekday": "T2", "price": int}, ...],
-      "members": [{"full_name": str, "votes": {date: price}, "total": int}, ...]
+      "days":    [{"date": "YYYY-MM-DD", "date_short": "DD/MM", "weekday": "T2", "price": int, "order_count": int, "block": int}, ...],
+      "members": [{"full_name": str, "votes": {date: price}, "total": int}, ...],
+      "blocks":  [{"block": int, "label": "Tuần 1–2", "per_member": {name: total}, "total": int}, ...]
     }
+    block = mỗi 2 tuần lịch (ISO) gộp thành 1 đợt để tính tổng.
     Only includes days with status='closed' and members who voted at least once.
     max_date: 'YYYY-MM-DD' upper bound (inclusive). If None, no upper bound.
     """
@@ -597,7 +599,7 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
             day_rows = [dict(r) for r in await cur.fetchall()]
 
         if not day_rows:
-            return {"days": [], "members": []}
+            return {"days": [], "members": [], "blocks": []}
 
         days = []
         for r in day_rows:
@@ -666,7 +668,46 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
             "total": sum(votes.values()),
         })
 
-    return {"days": days, "members": members}
+    # Số suất đặt mỗi ngày (số người vote hôm đó)
+    for d in days:
+        d["order_count"] = day_voter_counts.get(d["date"], 0)
+
+    # Nhóm ngày theo tuần lịch (ISO), gộp mỗi 2 tuần thành 1 "đợt"
+    week_keys = []  # thứ tự các tuần xuất hiện: (iso_year, iso_week)
+    week_of_date = {}
+    for d in days:
+        iso = dt_date.fromisoformat(d["date"]).isocalendar()
+        key = (iso[0], iso[1])
+        week_of_date[d["date"]] = key
+        if key not in week_keys:
+            week_keys.append(key)
+    week_seq = {key: i for i, key in enumerate(week_keys)}
+    for d in days:
+        d["block"] = week_seq[week_of_date[d["date"]]] // 2
+
+    # Tổng tiền mỗi đợt: theo từng người + tổng đợt
+    date_block = {d["date"]: d["block"] for d in days}
+    block_member_totals: dict = {}   # {block: {name: total}}
+    block_total: dict = {}           # {block: total}
+    for name, votes in votes_map.items():
+        for date, amount in votes.items():
+            b = date_block[date]
+            block_member_totals.setdefault(b, {}).setdefault(name, 0)
+            block_member_totals[b][name] += amount
+            block_total[b] = block_total.get(b, 0) + amount
+
+    blocks = []
+    for b in sorted(block_member_totals):
+        seqs = [i for i in range(len(week_keys)) if i // 2 == b]
+        label = f"Tuần {seqs[0] + 1}" if len(seqs) == 1 else f"Tuần {seqs[0] + 1}–{seqs[-1] + 1}"
+        blocks.append({
+            "block": b,
+            "label": label,
+            "per_member": block_member_totals[b],
+            "total": block_total[b],
+        })
+
+    return {"days": days, "members": members, "blocks": blocks}
 
 
 async def get_paid_user_ids(year_month: str) -> set:

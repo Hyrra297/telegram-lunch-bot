@@ -176,7 +176,7 @@
 
     /* ── Detail matrix table ── */
     .detail-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .detail-table { border-collapse: collapse; white-space: nowrap; min-width: 100%; }
+    .detail-table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     .detail-table thead th {
       background: #f8f9ff;
       padding: 8px 12px;
@@ -190,7 +190,7 @@
     }
     .detail-table thead th.col-name {
       text-align: left;
-      min-width: 120px;
+      width: 110px;
       position: sticky;
       left: 0;
       z-index: 2;
@@ -203,11 +203,12 @@
     .detail-table tbody tr { border-bottom: 1px solid #f0f0f0; }
     .detail-table tbody tr:hover td { background: #f8f9ff; }
     .detail-table td {
-      padding: 9px 12px;
+      padding: 8px 6px;
       text-align: center;
-      font-size: .85rem;
+      font-size: .8rem;
       border: 1px solid #f0f0ff;
       vertical-align: middle;
+      overflow-wrap: anywhere;
     }
     .detail-table td.td-name {
       text-align: left;
@@ -224,6 +225,14 @@
       font-weight: 600;
     }
     .detail-table td.td-empty { color: #ddd; }
+    .detail-table tr.subtotal-row td {
+      background: #fff7ed;
+      font-weight: 700;
+      color: #c05621;
+      border-top: 2px solid #f6ad55;
+    }
+    .detail-table tr.subtotal-row td.td-name { background: #fff7ed; }
+    .detail-table tr.subtotal-row td.td-total { background: #fffaf0; }
     .detail-table td.td-total {
       font-weight: 700;
       color: #4c51bf;
@@ -642,7 +651,7 @@
             <tr>
               <td class="td-name">
                 {{ day.date_short }}
-                <span class="detail-weekday">{{ day.weekday }}</span>
+                <span class="detail-weekday">{{ day.weekday }} · {{ day.order_count }} suất</span>
               </td>
               {% set ns = namespace(day_total=0) %}
               {% for member in detail.members %}
@@ -655,6 +664,17 @@
               {% endfor %}
               <td class="td-total" style="background:#eef2ff">{{ ns.day_total | format_vnd }}đ</td>
             </tr>
+            {# Hàng tổng mỗi đợt 2 tuần (chỉ hiện khi có >1 đợt) #}
+            {% if detail.blocks | length > 1 and (loop.last or detail.days[loop.index].block != day.block) %}
+              {% set blk = detail.blocks | selectattr('block', 'equalto', day.block) | first %}
+              <tr class="subtotal-row">
+                <td class="td-name">📊 {{ blk.label }}</td>
+                {% for member in detail.members %}
+                <td>{% if blk.per_member.get(member.full_name) %}{{ blk.per_member[member.full_name] | format_vnd }}đ{% else %}—{% endif %}</td>
+                {% endfor %}
+                <td class="td-total">{{ blk.total | format_vnd }}đ</td>
+              </tr>
+            {% endif %}
             {% endfor %}
             {% endif %}
           </tbody>

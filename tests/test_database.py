@@ -464,6 +464,30 @@ class TestSummaryPerDish:
         assert amounts["An"] == 45000 + round(20000 / 2)   # 55000
         assert amounts["Binh"] == 55000
 
+    async def test_detail_biweekly_blocks(self, db):
+        """Gộp mỗi 2 tuần lịch thành 1 đợt; hàng tổng đúng theo từng đợt."""
+        await db.add_user(1, "An", "an")
+        # 4 tuần ISO khác nhau: 05(w2,seq0) 13(w3,seq1) 20(w4,seq2) 27(w5,seq3)
+        # → block 0 = seq 0,1 (05+13); block 1 = seq 2,3 (20+27)
+        dates = ["2026-01-05", "2026-01-13", "2026-01-20", "2026-01-27"]
+        for d in dates:
+            await db.create_daily_vote(d, 100, 45000, 0)  # ship 0 → cost = price
+            await db.toggle_vote(d, 1)
+            await db.set_vote_closed(d)
+        detail = await db.get_monthly_detail("2026-01")
+
+        blocks_by_date = {d["date"]: d["block"] for d in detail["days"]}
+        assert blocks_by_date["2026-01-05"] == 0
+        assert blocks_by_date["2026-01-13"] == 0
+        assert blocks_by_date["2026-01-20"] == 1
+        assert blocks_by_date["2026-01-27"] == 1
+
+        assert len(detail["blocks"]) == 2
+        b0, b1 = detail["blocks"]
+        assert b0["total"] == 45000 * 2   # 05 + 13
+        assert b1["total"] == 45000 * 2   # 20 + 27
+        assert b0["per_member"]["An"] == 90000
+
 
 class TestFridayTemplate:
     async def test_applies_when_no_dishes(self, db):
