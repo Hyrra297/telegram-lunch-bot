@@ -327,7 +327,7 @@ class TestAnnounceRoles:
         await db.toggle_vote(date, 1)
         await db.toggle_vote(date, 2)
 
-    async def test_friday_only_picker_no_returner(self, db):
+    async def test_friday_two_pickers_no_returner(self, db):
         from scheduler import _scheduled_announce_roles
         friday = "2026-01-02"
         await self._setup_two_voters(db, friday)
@@ -337,9 +337,29 @@ class TestAnnounceRoles:
         daily = await db.get_daily_vote(friday)
         assert daily["status"] == "closed"
         assert daily["picker_user_id"] is not None
-        assert daily["returner_user_id"] is None
+        # Thứ 6 đủ người: người thứ 2 lưu vào returner_user_id
+        assert daily["returner_user_id"] is not None
+        assert daily["returner_user_id"] != daily["picker_user_id"]
         # Thứ 6: KHÔNG tính tiền lúc 10h30 (đợi job 15h)
         assert daily["cost_per_person"] is None
+        joined = " ".join(app.bot.sent_messages)
+        assert "đi lấy bún đậu" in joined
+        assert "trả hộp" not in joined
+
+    async def test_friday_single_voter_one_picker(self, db):
+        from scheduler import _scheduled_announce_roles
+        friday = "2026-01-02"
+        await db.add_user(1, "An", "an")
+        await db.create_daily_vote(friday, 100, 45000, 20000)
+        await db.toggle_vote(friday, 1)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=friday)
+
+        daily = await db.get_daily_vote(friday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is not None
+        # Chỉ 1 người vote → chỉ 1 picker, không có người thứ 2
+        assert daily["returner_user_id"] is None
         joined = " ".join(app.bot.sent_messages)
         assert "đi lấy bún đậu" in joined
         assert "trả hộp" not in joined

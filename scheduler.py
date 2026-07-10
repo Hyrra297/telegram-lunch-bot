@@ -136,10 +136,11 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
 async def _send_vote_reminder(app: Application, date: str) -> None:
     """Gửi tin nhắc số người đã vote (vote vẫn mở)."""
     voters = await db.get_voters(date)
+    mon = "bún đậu" if _is_friday(date) else "cơm"
     if voters:
-        text = f"⏰ Đã có *{len(voters)} người* đặt cơm. Ai chưa vote thì vote nhanh nhé!"
+        text = f"⏰ Đã có *{len(voters)} người* đặt {mon}. Ai chưa vote thì vote nhanh nhé!"
     else:
-        text = "⏰ Chưa có ai đặt cơm hôm nay. Vote nhanh nhé!"
+        text = f"⏰ Chưa có ai đặt {mon} hôm nay. Vote nhanh nhé!"
     await app.bot.send_message(chat_id=config.CHAT_ID, text=text, parse_mode="Markdown")
     logger.info("✅ Vote reminder sent for %s, %d voters", date, len(voters))
 
@@ -164,7 +165,7 @@ async def _scheduled_morning(app: Application) -> None:
 
 async def _scheduled_announce_roles(app: Application, today: str | None = None) -> None:
     """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp.
-    Thứ 6 (bún đậu): chỉ chọn 1 người đi lấy, không trả hộp."""
+    Thứ 6 (bún đậu): chọn 2 người đi lấy (nếu đủ người), không trả hộp."""
     if today is None:
         today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     logger.info("⏰ Scheduler: announce_roles triggered for %s", today)
@@ -214,9 +215,10 @@ async def _scheduled_announce_roles(app: Application, today: str | None = None) 
 
         voters = await db.get_voters(today)
         if not voters:
+            mon = "bún đậu" if _is_friday(today) else "cơm"
             await app.bot.send_message(
                 chat_id=config.CHAT_ID,
-                text="📢 Hôm nay không có ai đặt cơm.",
+                text=f"📢 Hôm nay không có ai đặt {mon}.",
             )
             return
 
@@ -227,9 +229,16 @@ async def _scheduled_announce_roles(app: Application, today: str | None = None) 
         picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
 
         if _is_friday(today):
-            # Ngày bún đậu: chỉ 1 người đi lấy, không trả hộp
-            await db.close_daily_vote(today, picker["id"], None)
-            roles_text = f"🛵 {picker_mention} đi lấy bún đậu"
+            # Ngày bún đậu: 2 người đi lấy (nếu đủ người), không trả hộp.
+            # Người thứ 2 lưu tạm vào cột returner_user_id (không dùng cho trả hộp T6).
+            picker2 = await db.pick_next_returner(today, picker["id"])
+            if picker2 and picker2["id"] != picker["id"]:
+                picker2_mention = f"@{_esc(picker2['username'])}" if picker2["username"] else _esc(picker2["full_name"])
+                await db.close_daily_vote(today, picker["id"], picker2["id"])
+                roles_text = f"🛵 {picker_mention} và {picker2_mention} đi lấy bún đậu"
+            else:
+                await db.close_daily_vote(today, picker["id"], None)
+                roles_text = f"🛵 {picker_mention} đi lấy bún đậu"
         else:
             returner = await db.pick_next_returner(today, picker["id"])
             await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
@@ -246,9 +255,10 @@ async def _scheduled_announce_roles(app: Application, today: str | None = None) 
             cost_per_person = price + round(ship_fee / len(voters))
             await db.set_cost_per_person(today, cost_per_person)
 
+        mon = "bún đậu" if _is_friday(today) else "cơm"
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
-            text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
+            text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt {mon}.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
             parse_mode="Markdown",
         )
         logger.info("✅ Roles assigned for %s, picker=%s", today, picker["username"])
