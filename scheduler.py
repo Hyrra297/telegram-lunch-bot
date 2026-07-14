@@ -147,7 +147,7 @@ async def _send_vote_reminder(app: Application, date: str) -> None:
 
 async def _scheduled_morning(app: Application) -> None:
     """08:30 — vote đã tạo từ tối hôm trước thì nhắc số người vote;
-    chưa có thì tạo vote cho hôm nay (lưới an toàn khi job 19:00 lỡ)."""
+    chưa có thì tạo vote cho hôm nay (lưới an toàn khi job 18:00 lỡ)."""
     today = _target_date(0)
     logger.info("⏰ Scheduler: morning triggered for %s", today)
 
@@ -340,12 +340,12 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         return h, m
 
     morning_h, morning_m = _hm(config.VOTE_OPEN_TIME)      # 08:30
-    evening_h, evening_m = _hm(config.EVENING_OPEN_TIME)   # 18:30
+    evening_h, evening_m = _hm(config.EVENING_OPEN_TIME)   # 18:00
     announce_h, announce_m = _hm(config.ANNOUNCE_TIME)     # 10:30
-    digest_h, digest_m = _hm(config.ADMIN_DIGEST_TIME)     # 20:00
+    digest_h, digest_m = _hm(config.ADMIN_DIGEST_TIME)     # 19:00
 
     scheduler = AsyncIOScheduler(timezone=tz)
-    # 18:30 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job open_vote_friday (20:00 T5) tạo
+    # 18:00 CN-T4: tạo vote cho ngày mai (T2-T5) — gồm CN tạo vote cho thứ 2; T6 do job open_vote_friday (20:00 T5) tạo
     scheduler.add_job(
         _scheduled_open_vote,
         trigger=CronTrigger(hour=evening_h, minute=evening_m, day_of_week="sun,mon,tue,wed", timezone=tz),
@@ -363,7 +363,7 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         trigger=CronTrigger(hour=announce_h, minute=announce_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="announce_roles", replace_existing=True, misfire_grace_time=300,
     )
-    # 20:00 CN-T4: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2; bỏ T5 vì thứ 6 KHÔNG digest — vote thứ 6 do open_vote_friday tạo)
+    # 19:00 CN-T4: digest vote gửi riêng admin (cho vote ngày mai, gồm CN cho thứ 2; bỏ T5 vì thứ 6 KHÔNG digest — vote thứ 6 do open_vote_friday tạo)
     scheduler.add_job(
         _scheduled_admin_digest,
         trigger=CronTrigger(hour=digest_h, minute=digest_m, day_of_week="sun,mon,tue,wed", timezone=tz),

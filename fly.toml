@@ -6,6 +6,8 @@ primary_region = 'sin'
 [env]
   PORT = '8080'
   DB_PATH = '/data/lunch_bot.db'
+  EVENING_OPEN_TIME = '18:00'
+  ADMIN_DIGEST_TIME = '19:00'
 
 [[mounts]]
   source = 'lunch_data'
