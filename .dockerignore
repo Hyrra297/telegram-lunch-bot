@@ -5,3 +5,6 @@
 __pycache__/
 *.pyc
 .git/
+.codex/
+.serena/
+AGENTS.md
