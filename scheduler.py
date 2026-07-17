@@ -165,7 +165,8 @@ async def _scheduled_morning(app: Application) -> None:
 
 async def _scheduled_announce_roles(app: Application, today: str | None = None) -> None:
     """10:30 — Đóng vote + chọn và thông báo người lấy cơm + trả hộp.
-    Thứ 6 (bún đậu): chọn 2 người đi lấy (nếu đủ người), không trả hộp."""
+    Thứ 6 (bún đậu): từ 8 suất chọn 2 người đi lấy, dưới 8 suất chọn 1 người;
+    không trả hộp."""
     if today is None:
         today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
     logger.info("⏰ Scheduler: announce_roles triggered for %s", today)
@@ -229,9 +230,9 @@ async def _scheduled_announce_roles(app: Application, today: str | None = None) 
         picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
 
         if _is_friday(today):
-            # Ngày bún đậu: 2 người đi lấy (nếu đủ người), không trả hộp.
+            # Ngày bún đậu: từ 8 suất chọn 2 người đi lấy, dưới 8 suất chọn 1 người.
             # Người thứ 2 lưu tạm vào cột returner_user_id (không dùng cho trả hộp T6).
-            picker2 = await db.pick_next_returner(today, picker["id"])
+            picker2 = await db.pick_next_returner(today, picker["id"]) if len(voters) >= 8 else None
             if picker2 and picker2["id"] != picker["id"]:
                 picker2_mention = f"@{_esc(picker2['username'])}" if picker2["username"] else _esc(picker2["full_name"])
                 await db.close_daily_vote(today, picker["id"], picker2["id"])
