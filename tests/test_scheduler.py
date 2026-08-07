@@ -337,7 +337,7 @@ class TestAnnounceRoles:
         daily = await db.get_daily_vote(friday)
         assert daily["status"] == "closed"
         assert daily["picker_user_id"] is not None
-        # Thứ 6 dưới ngưỡng 8 suất: không có người lấy thứ hai.
+        # Thứ 6 luôn chỉ 1 người đi lấy: không có người lấy thứ hai.
         assert daily["returner_user_id"] is None
         # Thứ 6: KHÔNG tính tiền lúc 10h30 (đợi job 15h)
         assert daily["cost_per_person"] is None
@@ -346,22 +346,23 @@ class TestAnnounceRoles:
         assert " và " not in joined
         assert "trả hộp" not in joined
 
-    async def test_friday_eight_orders_assigns_two_pickers(self, db):
+    async def test_friday_many_orders_still_one_picker(self, db):
+        """Thứ 6 luôn chỉ 1 người đi lấy, dù nhiều suất."""
         from scheduler import _scheduled_announce_roles
         friday = "2026-01-02"
-        await self._setup_voters(db, friday, 8)
+        await self._setup_voters(db, friday, 12)
         app = FakeApp()
         await _scheduled_announce_roles(app, today=friday)
 
         daily = await db.get_daily_vote(friday)
         assert daily["status"] == "closed"
         assert daily["picker_user_id"] is not None
-        assert daily["returner_user_id"] is not None
-        assert daily["returner_user_id"] != daily["picker_user_id"]
+        # Bất kể số suất: không có người lấy thứ hai.
+        assert daily["returner_user_id"] is None
         assert daily["cost_per_person"] is None
         joined = " ".join(app.bot.sent_messages)
-        assert " và " in joined
         assert "đi lấy bún đậu" in joined
+        assert " và " not in joined
         assert "trả hộp" not in joined
 
     async def test_friday_single_voter_one_picker(self, db):

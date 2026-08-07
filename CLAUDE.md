@@ -35,7 +35,7 @@ python bot.py
 | 19:00 | CN–T4 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai. Không chạy T5 (không digest trước thứ 6) |
 | 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). Thứ 6: giờ vote đã có từ 20:00 T5 → 08:30 chỉ **nhắc** như mọi ngày (job 08:30 vẫn là lưới an toàn nếu job 20:00 lỡ) |
 | 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền |
-| 10:30 | T6 | Đóng vote + 1–7 suất: **1 picker** lấy bún đậu; 8+ suất: **2 picker khác nhau** lấy bún đậu (picker thứ hai lưu trong `returner_user_id`, không phải trả hộp). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
+| 10:30 | T6 | Đóng vote + **1 picker** đi lấy bún đậu (luôn 1 người, bất kể số suất). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
 | 15:00 | T6 | **`friday_settle`**: gọi `snapshot_day_costs(date)` — tính và khoá tiền từng người vào `vote_entries.cost` (mỗi người = giá món + ship/số người). Im lặng (không gửi tin) |
 
@@ -130,7 +130,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 ## Conventions
 - Web và bot dùng chung SQLite — không conflict nhờ WAL mode
 - Admin check: `user_id in config.ADMIN_IDS`
-- `close_daily_vote()`: đóng + chọn người (dùng lúc 10:30). T2–T5: picker + returner; T6 (bún đậu): 1–7 suất chỉ 1 picker, 8+ suất có 2 picker khác nhau; picker thứ hai lưu trong `returner_user_id` nhưng không phải nhiệm vụ trả hộp. T6 không phân công trả hộp và không tính tiền lúc 10:30.
+- `close_daily_vote()`: đóng + chọn người (dùng lúc 10:30). T2–T5: picker + returner; T6 (bún đậu): luôn chỉ 1 picker (bất kể số suất), không dùng `returner_user_id`. T6 không phân công trả hộp và không tính tiền lúc 10:30.
 - `set_vote_closed()`: chỉ đóng, chưa chọn người (dùng trong announce_roles lúc 10:30)
 - **Giới hạn**: Lệnh admin thủ công `/close_vote` và `/assign` KHÔNG áp logic thứ 6 — nếu admin tự đóng/phân công vote thứ 6 sẽ vẫn gán người trả hộp và tính tiền ngay (logic cơm). Ngày bún đậu nên để luồng tự động (10:30 chỉ picker, 15:00 friday_settle) xử lý.
 - Web cần restart uvicorn sau khi sửa code Python
