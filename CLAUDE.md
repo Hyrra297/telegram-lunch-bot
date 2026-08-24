@@ -54,12 +54,13 @@ báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (18:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (19:00), `EARLY_CLOSE_TIME` (09:30)
 
 ## Đóng vote sớm / đóng tay
-Ba đường đóng vote đều gọi **cùng một luật** trong `roles.py` (`assign_and_settle`) qua `handlers.vote.lock_vote_now(bot, date)` nên không lệch nhau — thứ 6 chỉ 1 người lấy, ngày cơm tòa nhà không phân công, freeship không cộng ship:
-- **Nút `🔒 Đóng vote ngay`** trên web tab "Tuần này" (`POST /close-vote`, chỉ hiện ở ngày `status='open'`, chỉ admin, có confirm). Web tạo `Bot(BOT_TOKEN)` riêng qua `web.app._bot()` — Bot API là HTTP stateless nên không cần polling; test thay `_bot` bằng bot giả.
-- **`/close_vote`** trong Telegram — cùng logic.
-- **Job `early_close` 09:30** — tự động cho ngày đã tick.
+Hai đường đóng vote đều gọi **cùng một luật** trong `roles.py` (`assign_and_settle`) qua `handlers.vote.lock_vote_now(bot, date)` nên không lệch nhau — thứ 6 chỉ 1 người lấy, ngày cơm tòa nhà không phân công, freeship không cộng ship:
+- **Job `early_close` 09:30** — tự động, chỉ cho ngày `roles.closes_early(daily)` (tick `early_close` HOẶC `building_order`).
+- **`/close_vote`** trong Telegram (lệnh admin, có từ trước).
 
-**Đã thử và bỏ**: gắn nút inline vào chính poll (`send_poll(reply_markup=...)` — Telegram CHO gắn). Bỏ vì inline keyboard là thuộc tính của message nên **cả nhóm đều thấy nút**, không ẩn được theo người; chỉ chặn được ở tầng bot khi bấm. Nếu sau này cần nút trong Telegram mà không lộ: gửi tin riêng cho admin kèm nút (như `admin_notify`), đừng gắn vào poll nhóm.
+**Đã thử và bỏ — đừng làm lại:**
+1. *Nút inline dưới poll* (`send_poll(reply_markup=...)` — Telegram CHO gắn, đã kiểm chứng). Bỏ vì inline keyboard là thuộc tính của message nên **cả nhóm đều thấy nút**, không ẩn theo người được. Nếu cần nút trong Telegram mà không lộ: gửi tin riêng admin kèm nút (như `admin_notify`), đừng gắn vào poll nhóm.
+2. *Nút "Đóng vote ngay" trên web* (`POST /close-vote`). Bỏ theo yêu cầu user (2026-08-24): đã có đóng tự động 9:30/10:30 nên nút bấm tay là dư.
 
 Sau khi đóng sớm, job 10:30 thấy `picker_user_id` đã có (hoặc ngày tòa nhà đã `closed`) → im lặng, không phân công lại, không gửi tin trùng.
 
@@ -139,9 +140,9 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 - Tab "Tuần này": xem ai đặt, nhập 4 món cho từng ngày (admin); riêng T6 nhập **giá từng món** (`dish1_price`..`dish4_price`) + **ship** cho bún đậu (đã bỏ ô "Giá/s" đơn giá)
 - Tab "Tuần này" — 2 ô tick per ngày (admin, cùng endpoint `POST /toggle-day-flag` với `flag=building_order|freeship`, whitelist `db.DAY_FLAGS`):
-  - **🏢 Cơm tòa nhà** (`daily_votes.building_order`): 10:30 vẫn đóng vote + chốt sổ + tính tiền nhưng KHÔNG phân công lấy cơm/trả hộp (round-robin không advance) và KHÔNG tính ship. Tin nhắn chỉ "Chốt sổ! Tổng có N người đặt cơm." — không giải thích lý do.
-  - **🚚 Freeship** (`daily_votes.freeship`): phân công lấy/trả bình thường, chỉ bỏ tiền ship khỏi công thức.
-  - **⏱️ Đóng vote 9:30** (`daily_votes.early_close`): job `early_close` đóng vote sớm hôm đó. Không tick → vote mở tới 10:30 như thường.
+  - **🏢 Cơm tòa nhà** (`daily_votes.building_order`) — **ô tick DUY NHẤT trên web**, gồm cả 3 tác dụng: KHÔNG phân công lấy cơm/trả hộp (round-robin không advance), KHÔNG tính ship, và đóng vote 9:30. Tin nhắn chỉ "Chốt sổ!/Vote đã đóng! N người đặt cơm." — không giải thích lý do. Ý nghĩa ghi 1 dòng ở `card-header` tab "Tuần này" (chỉ admin thấy), không lặp trong từng ô ngày.
+  - `freeship` và `early_close` vẫn là cột DB + logic thật, nhưng **không còn ô tick trên web** (user bỏ 2026-08-24 vì cơm tòa nhà đã bao hàm). Muốn bật riêng cho một ngày: gọi `POST /toggle-day-flag` với `flag=freeship|early_close`, hoặc `db.set_day_flag(...)`. Endpoint và whitelist `DAY_FLAGS` vẫn nhận cả 3.
+  - Ngụ ý được tính ở tầng đọc, KHÔNG ghi đè DB: ship qua `database._effective_ship`, đóng sớm qua `roles.closes_early`. Bỏ tick tòa nhà là 2 cờ kia trở về đúng giá trị đã lưu.
   - Ai cũng thấy badge "🏢 Cơm tòa nhà" / "🚚 Freeship" trên ô ngày. Ship = 0 áp cả 4 chỗ tính tiền: `get_monthly_summary`, `get_monthly_detail`, `snapshot_day_costs` (helper `_effective_ship`), scheduler 10:30 và `/assign`. `/close_vote` thủ công vẫn KHÔNG áp logic building_order (giống giới hạn thứ 6) — ngày tòa nhà nên để luồng tự động xử lý.
 - Tab "Tháng": bảng chi tiết tiền từng người, nút toggle paid
 - Tab "Lịch sử": các ngày đã đóng vote

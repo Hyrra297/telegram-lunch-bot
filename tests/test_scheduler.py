@@ -550,6 +550,23 @@ class TestEarlyClose:
         assert app.bot.sent_messages == []
         assert (await db.get_daily_vote(monday))["picker_user_id"] == picker_before
 
+    async def test_building_order_implies_early_close(self, db):
+        """Tick "Cơm tòa nhà" đã bao gồm đóng 9:30 — không cần tick thêm."""
+        from scheduler import _scheduled_early_close
+        monday = "2026-01-05"
+        await self._setup(db, monday)
+        await db.set_day_flag(monday, "building_order", True)   # KHÔNG tick early_close
+        app = FakeApp()
+        await _scheduled_early_close(app, today=monday)
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is None          # tòa nhà: không phân công
+        assert daily["cost_per_person"] == 45000        # tòa nhà: không ship
+        joined = " ".join(app.bot.sent_messages)
+        assert "Vote đã đóng" in joined
+        assert "🛵" not in joined                       # tòa nhà: không phân công
+
     async def test_building_order_day_closes_without_roles(self, db):
         from scheduler import _scheduled_early_close
         monday = "2026-01-05"

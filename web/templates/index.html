@@ -494,7 +494,14 @@
   <div class="tab-panel {% if tab == 'week' %}active{% endif %}">
     <div class="card">
       <div class="card-header">
-        <h2>📅 Thực đơn tuần này</h2>
+        <div>
+          <h2>📅 Thực đơn tuần này</h2>
+          {% if is_admin %}
+          <p style="font-size:.78rem;color:#888;margin:4px 0 0">
+            🏢 <b>Cơm tòa nhà</b> = không phân công người lấy/trả hộp · không tính tiền ship · đóng vote lúc 9:30
+          </p>
+          {% endif %}
+        </div>
         <span style="font-size:.85rem;color:#888">{{ week_label }}</span>
       </div>
       <div class="week-grid">
@@ -518,16 +525,10 @@
           {% endif %}
 
           {% if day.building_order %}
-            <span class="status-badge" style="background:#eef2ff;color:#4338ca">🏢 Cơm tòa nhà</span>
+            <span class="status-badge" style="background:#eef2ff;color:#4338ca"
+                  title="Không phân công lấy/trả, không tính ship, đóng vote 9:30">🏢 Cơm tòa nhà</span>
           {% endif %}
 
-          {% if day.freeship %}
-            <span class="status-badge" style="background:#ecfdf5;color:#047857">🚚 Freeship</span>
-          {% endif %}
-
-          {% if day.early_close %}
-            <span class="status-badge" style="background:#fef2f2;color:#b91c1c">⏱️ Đóng vote 9:30</span>
-          {% endif %}
 
           {# ── Menu image ── #}
           {% if day.menu_image %}
@@ -539,26 +540,11 @@
 
           {# ── Upload button (admin only) ── #}
           {% if is_admin %}
-          {% if day.status == 'open' %}
-          <button type="button" onclick="closeVoteNow('{{ day.date }}', this)"
-            style="padding:7px 12px;background:#b91c1c;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.82rem;font-weight:600">
-            🔒 Đóng vote ngay
-          </button>
-          {% endif %}
-          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer">
+          <label title="Vẫn chốt sổ, nhưng KHÔNG phân công người lấy cơm/trả hộp, KHÔNG tính tiền ship, và đóng vote lúc 9:30"
+                 style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer;white-space:nowrap">
             <input type="checkbox" name="building_order" {% if day.building_order %}checked{% endif %}
                    onchange="toggleDayFlag('{{ day.date }}', 'building_order', this)">
-            🏢 Cơm tòa nhà (không phân công lấy/trả, không ship)
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer">
-            <input type="checkbox" name="freeship" {% if day.freeship %}checked{% endif %}
-                   onchange="toggleDayFlag('{{ day.date }}', 'freeship', this)">
-            🚚 Freeship (không tính tiền ship)
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer">
-            <input type="checkbox" name="early_close" {% if day.early_close %}checked{% endif %}
-                   onchange="toggleDayFlag('{{ day.date }}', 'early_close', this)">
-            ⏱️ Đóng vote 9:30 (thay vì 10:30)
+            🏢 Cơm tòa nhà
           </label>
           <label class="upload-btn" id="lbl-{{ day.date }}">
             📷 {{ 'Đổi ảnh' if day.menu_image else 'Tải ảnh thực đơn' }}
@@ -933,29 +919,6 @@ async function saveMenuItems(event, date) {
   }
 }
 
-async function closeVoteNow(date, btn) {
-  if (!confirm('Đóng vote ngày ' + date + ' ngay bây giờ?\n\nBot sẽ chặn vote, phân công người lấy cơm và báo vào nhóm. Không hoàn lại được.')) return;
-  btn.disabled = true;
-  const label = btn.textContent;
-  btn.textContent = '⏳ Đang đóng...';
-  const form = new FormData();
-  form.append('date', date);
-  try {
-    const res = await fetch('/close-vote', { method: 'POST', body: form });
-    const data = await res.json();
-    if (data.ok) {
-      btn.textContent = '✅ ' + (data.message || 'Đã đóng');
-      setTimeout(() => window.location.reload(), 1200);
-    } else {
-      alert('Lỗi: ' + (data.error || 'Không thể đóng vote'));
-      btn.disabled = false; btn.textContent = label;
-    }
-  } catch(e) {
-    alert('Lỗi kết nối');
-    btn.disabled = false; btn.textContent = label;
-  }
-}
-
 async function toggleDayFlag(date, flag, checkbox) {
   checkbox.disabled = true;
   const form = new FormData();
@@ -968,6 +931,9 @@ async function toggleDayFlag(date, flag, checkbox) {
     if (!data.ok) {
       checkbox.checked = !checkbox.checked;
       alert('Lỗi: ' + (data.error || 'Không thể lưu'));
+    } else if (flag === 'building_order') {
+      window.location.reload();   // cơm tòa nhà kéo theo freeship + đóng 9:30
+      return;
     }
   } catch(e) {
     checkbox.checked = !checkbox.checked;

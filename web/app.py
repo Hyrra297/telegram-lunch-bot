@@ -321,27 +321,6 @@ async def upload_qr(
     return JSONResponse({"ok": True, "url": f"/static/qr/{type}{ext}"})
 
 
-def _bot():
-    """Bot instance riêng cho web (Bot API là HTTP stateless nên không cần
-    polling). Tách hàm để test thay được bằng bot giả."""
-    from telegram import Bot
-    return Bot(config.BOT_TOKEN)
-
-
-@app.post("/close-vote")
-async def close_vote_endpoint(request: Request, date: str = Form(...)):
-    """Đóng vote ngay cho `date` — chặn vote tiếp, phân công, báo nhóm.
-    Cùng luật với job 10:30 (qua handlers.vote.lock_vote_now)."""
-    if not _is_admin(request):
-        return JSONResponse({"ok": False, "error": "Không có quyền"}, status_code=403)
-    daily = await db.get_daily_vote(date)
-    if not daily or daily["status"] != "open":
-        return JSONResponse({"ok": False, "error": "Ngày này không có vote đang mở"})
-    from handlers.vote import lock_vote_now
-    message = await lock_vote_now(_bot(), date)
-    return JSONResponse({"ok": True, "message": message})
-
-
 @app.post("/toggle-day-flag")
 async def toggle_day_flag_endpoint(
     request: Request,

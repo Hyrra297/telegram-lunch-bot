@@ -20,6 +20,12 @@ def meal_name(date_str: str) -> str:
     return "bún đậu" if is_friday(date_str) else "cơm"
 
 
+def closes_early(daily: dict) -> bool:
+    """Ngày này có đóng vote sớm (9:30) không? Tick "Cơm tòa nhà" đã bao gồm
+    đóng sớm, nên không cần tick thêm early_close."""
+    return bool(daily.get("early_close") or daily.get("building_order"))
+
+
 def cost_per_person(daily: dict, voter_count: int) -> int:
     """Tiền mỗi người: giá suất + ship chia đều.
     Ngày cơm tòa nhà / freeship → không cộng ship."""

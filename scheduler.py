@@ -247,7 +247,7 @@ async def _scheduled_early_close(app: Application, today: str | None = None) -> 
         today = _target_date(0)
     try:
         daily = await db.get_daily_vote(today)
-        if not daily or not daily.get("early_close"):
+        if not daily or not roles.closes_early(daily):
             return
         if daily["status"] != "open":
             logger.info("Early close %s: vote not open (%s), skip.", today, daily["status"])
