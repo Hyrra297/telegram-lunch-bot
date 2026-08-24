@@ -54,10 +54,12 @@ báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (18:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (19:00), `EARLY_CLOSE_TIME` (09:30)
 
 ## Đóng vote sớm / đóng tay
-Ba đường đóng vote đều gọi **cùng một luật** trong `roles.py` (`assign_and_settle`) nên không lệch nhau — thứ 6 chỉ 1 người lấy, ngày cơm tòa nhà không phân công, freeship không cộng ship:
-- **Nút `🔒 Đóng vote (admin)`** gắn ngay dưới poll (`_build_lock_keyboard()` truyền vào `send_poll(reply_markup=...)`). Telegram KHÔNG cho người thật "Stop poll" của poll do bot tạo → phải đi qua bot. Callback `lock:vote` → `handle_lock_vote_callback`, chặn non-admin bằng alert. Nút lấy ngày từ `poll_message_id` (không dùng `_today()`) nên poll tạo tối hôm trước vẫn đóng đúng ngày.
-- **`/close_vote`** — cùng logic, qua `lock_vote_now(bot, date)`.
+Ba đường đóng vote đều gọi **cùng một luật** trong `roles.py` (`assign_and_settle`) qua `handlers.vote.lock_vote_now(bot, date)` nên không lệch nhau — thứ 6 chỉ 1 người lấy, ngày cơm tòa nhà không phân công, freeship không cộng ship:
+- **Nút `🔒 Đóng vote ngay`** trên web tab "Tuần này" (`POST /close-vote`, chỉ hiện ở ngày `status='open'`, chỉ admin, có confirm). Web tạo `Bot(BOT_TOKEN)` riêng qua `web.app._bot()` — Bot API là HTTP stateless nên không cần polling; test thay `_bot` bằng bot giả.
+- **`/close_vote`** trong Telegram — cùng logic.
 - **Job `early_close` 09:30** — tự động cho ngày đã tick.
+
+**Đã thử và bỏ**: gắn nút inline vào chính poll (`send_poll(reply_markup=...)` — Telegram CHO gắn). Bỏ vì inline keyboard là thuộc tính của message nên **cả nhóm đều thấy nút**, không ẩn được theo người; chỉ chặn được ở tầng bot khi bấm. Nếu sau này cần nút trong Telegram mà không lộ: gửi tin riêng cho admin kèm nút (như `admin_notify`), đừng gắn vào poll nhóm.
 
 Sau khi đóng sớm, job 10:30 thấy `picker_user_id` đã có (hoặc ngày tòa nhà đã `closed`) → im lặng, không phân công lại, không gửi tin trùng.
 

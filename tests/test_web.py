@@ -239,6 +239,86 @@ async def test_day_flag_checkboxes_only_for_admin(web_app, admin_cookie):
     assert 'name="early_close"' not in resp.text
 
 
+# ── Close vote từ web ─────────────────────────────────────────────────────────
+
+class _FakeBot:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.sent.append((chat_id, text))
+
+    async def stop_poll(self, chat_id, message_id, **kwargs):
+        pass
+
+    async def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, **kwargs):
+        pass
+
+
+@pytest.fixture
+def fake_bot(web_app, monkeypatch):
+    """Chặn web gọi Telegram thật khi test."""
+    import web.app as webmod
+    bot = _FakeBot()
+    monkeypatch.setattr(webmod, "_bot", lambda: bot)
+    return bot
+
+
+async def test_close_vote_requires_auth(web_app, fake_bot):
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test") as client:
+        resp = await client.post("/close-vote", data={"date": "2026-01-05"})
+    assert resp.status_code == 403
+    assert fake_bot.sent == []
+
+
+async def test_close_vote_closes_and_assigns(web_app, admin_cookie, fake_bot):
+    import database as db_mod
+    await db_mod.init_db()
+    monday = "2026-01-05"
+    await db_mod.add_user(1, "An", "an")
+    await db_mod.add_user(2, "Binh", "binh")
+    await db_mod.create_daily_vote(monday, 700, 45000, 20000)
+    await db_mod.toggle_vote(monday, 1)
+    await db_mod.toggle_vote(monday, 2)
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/close-vote", data={"date": monday})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+    daily = await db_mod.get_daily_vote(monday)
+    assert daily["status"] == "closed"
+    assert daily["picker_user_id"] is not None
+    assert "🛵" in " ".join(t for _, t in fake_bot.sent)
+
+
+async def test_close_vote_on_day_without_vote(web_app, admin_cookie, fake_bot):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/close-vote", data={"date": "2026-01-05"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False    # không có vote để đóng
+    assert fake_bot.sent == []
+
+
+async def test_close_vote_button_only_on_open_days(web_app, admin_cookie):
+    """Nút "Đóng vote ngay" chỉ hiện ở ngày đang mở vote, và chỉ cho admin."""
+    import database as db_mod
+    from web.app import _current_week_dates
+    await db_mod.init_db()
+    week = _current_week_dates()
+    await db_mod.create_daily_vote(week[0], 701, 45000, 20000)   # 1 ngày status='open'
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    assert resp.text.count('onclick="closeVoteNow(') == 1   # chỉ ngày đang mở có nút
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test") as client:
+        resp = await client.get("/")
+    assert 'onclick="closeVoteNow(' not in resp.text
+
+
 # ── Toggle paid ───────────────────────────────────────────────────────────────
 
 async def test_toggle_paid_requires_auth(web_app):

@@ -539,6 +539,12 @@
 
           {# ── Upload button (admin only) ── #}
           {% if is_admin %}
+          {% if day.status == 'open' %}
+          <button type="button" onclick="closeVoteNow('{{ day.date }}', this)"
+            style="padding:7px 12px;background:#b91c1c;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.82rem;font-weight:600">
+            🔒 Đóng vote ngay
+          </button>
+          {% endif %}
           <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer">
             <input type="checkbox" name="building_order" {% if day.building_order %}checked{% endif %}
                    onchange="toggleDayFlag('{{ day.date }}', 'building_order', this)">
@@ -924,6 +930,29 @@ async function saveMenuItems(event, date) {
   } catch(e) {
     alert('Lỗi kết nối');
     btn.disabled = false; btn.textContent = '💾 Lưu';
+  }
+}
+
+async function closeVoteNow(date, btn) {
+  if (!confirm('Đóng vote ngày ' + date + ' ngay bây giờ?\n\nBot sẽ chặn vote, phân công người lấy cơm và báo vào nhóm. Không hoàn lại được.')) return;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '⏳ Đang đóng...';
+  const form = new FormData();
+  form.append('date', date);
+  try {
+    const res = await fetch('/close-vote', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ ' + (data.message || 'Đã đóng');
+      setTimeout(() => window.location.reload(), 1200);
+    } else {
+      alert('Lỗi: ' + (data.error || 'Không thể đóng vote'));
+      btn.disabled = false; btn.textContent = label;
+    }
+  } catch(e) {
+    alert('Lỗi kết nối');
+    btn.disabled = false; btn.textContent = label;
   }
 }
 

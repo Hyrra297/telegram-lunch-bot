@@ -104,7 +104,7 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
                         caption=wording["caption"],
                     )
 
-        from handlers.vote import _build_keyboard, _build_vote_text, _build_lock_keyboard
+        from handlers.vote import _build_keyboard, _build_vote_text
         dishes = await db.get_menu_items(target_str)
         logger.info("Dishes for %s: %s", target_str, dishes)
 
@@ -115,7 +115,6 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
                 options=dishes,
                 is_anonymous=False,
                 allows_multiple_answers=False,
-                reply_markup=_build_lock_keyboard(),
             )
             await db.create_daily_vote(target_str, poll_msg.message_id, price, ship_fee)
             await db.set_poll_id(target_str, poll_msg.poll.id)
