@@ -77,6 +77,47 @@ async def test_close_daily_vote_sets_picker(db):
     assert user["last_picked_at"] == "2026-03-10"
 
 
+class TestTreasurerAlwaysPaid:
+    """Người thu/chuyển tiền (settings.treasurer_user_id) luôn tính là đã đóng —
+    họ gom tiền của nhóm rồi chuyển đi, không phải đóng cho ai."""
+
+    async def test_treasurer_counted_paid_without_record(self, db):
+        await db.add_user(1, "Nguyễn Quang Hưng", "hung")
+        await db.set_setting("treasurer_user_id", "1")
+        assert 1 in await db.get_paid_user_ids("2026-08")
+
+    async def test_applies_to_every_month(self, db):
+        await db.set_setting("treasurer_user_id", "1")
+        for ym in ("2026-01", "2026-08", "2027-12"):
+            assert 1 in await db.get_paid_user_ids(ym)
+
+    async def test_others_unaffected(self, db):
+        await db.set_setting("treasurer_user_id", "1")
+        ids = await db.get_paid_user_ids("2026-08")
+        assert 2 not in ids
+        await db.toggle_monthly_paid("2026-08", 2)
+        assert 2 in await db.get_paid_user_ids("2026-08")
+
+    async def test_no_treasurer_setting_keeps_old_behaviour(self, db):
+        assert await db.get_paid_user_ids("2026-08") == set()
+
+    async def test_garbage_setting_does_not_crash(self, db):
+        await db.set_setting("treasurer_user_id", "khong-phai-so")
+        assert await db.get_paid_user_ids("2026-08") == set()
+
+    async def test_get_treasurer_id_helper(self, db):
+        assert await db.get_treasurer_id() is None
+        await db.set_setting("treasurer_user_id", "462506085")
+        assert await db.get_treasurer_id() == 462506085
+
+    async def test_treasurer_stays_paid_after_toggle_off(self, db):
+        """Bấm huỷ đánh dấu cũng không làm người thu tiền thành chưa đóng."""
+        await db.set_setting("treasurer_user_id", "1")
+        await db.toggle_monthly_paid("2026-08", 1)   # ghi record
+        await db.toggle_monthly_paid("2026-08", 1)   # xoá record
+        assert 1 in await db.get_paid_user_ids("2026-08")
+
+
 async def test_set_day_flag_building_order(db):
     await db.create_daily_vote("2026-03-10", 100, 35000, 20000)
     await db.set_day_flag("2026-03-10", "building_order", True)

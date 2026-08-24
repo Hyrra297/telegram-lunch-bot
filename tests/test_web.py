@@ -256,6 +256,35 @@ async def test_day_flag_checkboxes_only_for_admin(web_app, admin_cookie):
 
 # ── Toggle paid ───────────────────────────────────────────────────────────────
 
+async def test_treasurer_shown_paid_without_toggle_button(web_app, admin_cookie):
+    """Người thu tiền: luôn hiện đã đóng và KHÔNG có nút Huỷ/Đánh dấu
+    (bấm cũng vô nghĩa vì luôn tính là đã đóng)."""
+    import database as db_mod
+    from web.app import _current_week_dates
+    await db_mod.init_db()
+    await db_mod.add_user(1, "Nguyen Quang Hung", "hung")
+    await db_mod.add_user(2, "Nguoi Khac", "khac")
+    day = _current_week_dates()[0]
+    await db_mod.create_daily_vote(day, 800, 45000, 20000)
+    await db_mod.toggle_vote(day, 1)
+    await db_mod.toggle_vote(day, 2)
+    await db_mod.set_vote_closed(day)
+    await db_mod.set_setting("treasurer_user_id", "1")
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/?tab=payment")
+    html = resp.text
+    assert "togglePaid('%s', 1," % _current_month_for_test() not in html   # người thu: không có nút
+    assert "togglePaid" in html                                            # người khác: vẫn có nút
+
+
+def _current_month_for_test():
+    import config
+    import pytz
+    from datetime import datetime
+    return datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m")
+
+
 async def test_toggle_paid_requires_auth(web_app):
     async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test") as client:
         resp = await client.post("/toggle-paid", data={"year_month": "2026-03", "user_id": 1})

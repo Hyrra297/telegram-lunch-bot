@@ -826,7 +826,11 @@
                 <span class="status-badge {% if member.paid %}badge-paid{% else %}badge-unpaid{% endif %}">
                   {{ '✅ Đã đóng' if member.paid else '❌ Chưa đóng' }}
                 </span>
-                {% if is_admin %}
+                {% if member.is_treasurer %}
+                <span style="font-size:.75rem;color:#888" title="Người gom và chuyển tiền cho quán nên luôn tính là đã đóng">
+                  (người chuyển tiền)
+                </span>
+                {% elif is_admin %}
                 <button class="btn-toggle-paid"
                         onclick="togglePaid('{{ month }}', {{ member.user_id }}, this)">
                   {{ 'Huỷ' if member.paid else 'Đánh dấu' }}

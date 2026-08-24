@@ -745,14 +745,30 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
     return {"days": days, "members": members, "blocks": blocks}
 
 
+async def get_treasurer_id() -> Optional[int]:
+    """User id của người thu/chuyển tiền (settings.treasurer_user_id), None nếu
+    chưa đặt hoặc giá trị không phải số."""
+    raw = await get_setting("treasurer_user_id")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 async def get_paid_user_ids(year_month: str) -> set:
-    """Returns set of user_ids who have paid for the given month."""
+    """Set user_id được tính là đã đóng tiền tháng này.
+    Người thu tiền luôn nằm trong đây — họ gom tiền cả nhóm rồi chuyển đi,
+    không phải đóng cho ai, nên không cần đánh dấu mỗi tháng."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT user_id FROM monthly_payments WHERE year_month = ?", (year_month,)
         ) as cur:
             rows = await cur.fetchall()
-            return {r[0] for r in rows}
+            paid = {r[0] for r in rows}
+    treasurer = await get_treasurer_id()
+    if treasurer is not None:
+        paid.add(treasurer)
+    return paid
 
 
 async def toggle_monthly_paid(year_month: str, user_id: int) -> bool:

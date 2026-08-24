@@ -147,10 +147,12 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     detail = await db.get_monthly_detail(month, max_date=max_date)
 
     paid_ids = await db.get_paid_user_ids(month)
+    treasurer_id = await db.get_treasurer_id()
 
     # Attach paid status to each member
     for member in detail["members"]:
         member["paid"] = member.get("user_id") in paid_ids
+        member["is_treasurer"] = member.get("user_id") == treasurer_id
 
     total_amount = sum(member["total"] for member in detail["members"])
     paid_count = sum(1 for m in detail["members"] if m["paid"])

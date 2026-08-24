@@ -113,6 +113,9 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Thành viên mới join vào cuối cả 2 queue
 - Chỉ chọn từ những người đã vote hôm đó
 
+### Người chuyển tiền luôn "đã đóng"
+`settings.treasurer_user_id` (prod: `462506085` — Nguyễn Quang Hưng) là người gom tiền cả nhóm rồi chuyển cho quán, nên **luôn được tính là đã đóng, không cần đánh dấu mỗi tháng**. Cài ở `get_paid_user_ids()` (union thêm treasurer) nên áp cho mọi nơi đọc trạng thái: web dashboard, ảnh tổng kết tháng (scheduler 14:00 + `/summary`), `/dong_tien`, `/tien`. Web hiện chữ "(người chuyển tiền)" thay cho nút Huỷ/Đánh dấu. Đổi người: `UPDATE settings SET value='<user_id>' WHERE key='treasurer_user_id'` (không cần deploy).
+
 ### /dong_tien
 - Bất kỳ ai trong nhóm đều gõ được (không cần active member)
 - Bot gửi vào nhóm kèm nút [✅ Xác nhận] cho admin
