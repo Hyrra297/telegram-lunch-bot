@@ -9,10 +9,12 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, Pol
 import anthropic
 import config
 import database as db
+import roles
 from admin_notify import notify_new_voter, notify_changed_dish, notify_retracted
 
 CALLBACK_VOTE_IN = "vote:in"
 CALLBACK_VOTE_OUT = "vote:out"
+CALLBACK_LOCK_VOTE = "lock:vote"
 
 
 def _today(tz: str = config.TIMEZONE) -> str:
@@ -38,6 +40,14 @@ def _build_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("✅ Tôi đặt", callback_data=CALLBACK_VOTE_IN),
             InlineKeyboardButton("❌ Bỏ phiếu", callback_data=CALLBACK_VOTE_OUT),
         ]
+    ])
+
+
+def _build_lock_keyboard() -> InlineKeyboardMarkup:
+    """Nút gắn dưới poll để admin đóng vote ngay — Telegram không cho người thật
+    stop poll do bot tạo, nên phải đi qua bot."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔒 Đóng vote (admin)", callback_data=CALLBACK_LOCK_VOTE)]
     ])
 
 
@@ -128,6 +138,7 @@ async def open_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             options=dishes,
             is_anonymous=False,
             allows_multiple_answers=False,
+            reply_markup=_build_lock_keyboard(),
         )
         await db.create_daily_vote(today, poll_msg.message_id, price, ship_fee)
         await db.set_poll_id(today, poll_msg.poll.id)
@@ -190,68 +201,80 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await notify_new_voter(context.bot, full_name, len(voters), exclude_user_id=user_id)
 
 
+async def _stop_telegram_poll(bot, daily: dict, chat_id: int) -> None:
+    """Chặn vote tiếp trên Telegram: dừng native poll hoặc bỏ inline keyboard."""
+    message_id = daily.get("poll_message_id")
+    if not message_id:
+        return
+    if daily.get("poll_id"):
+        try:
+            await bot.stop_poll(chat_id=chat_id, message_id=message_id)
+            return
+        except Exception:
+            pass
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id, message_id=message_id, reply_markup=None,
+        )
+    except Exception:
+        pass
+
+
+async def lock_vote_now(bot, date: str, chat_id: int | None = None) -> str:
+    """Đóng vote ngay (không cho vote nữa) + phân công + báo nhóm.
+    Dùng chung cho lệnh /close_vote, nút 🔒 dưới poll và job early_close.
+    `chat_id`: nơi gửi thông báo & đóng poll — mặc định nhóm chính; nút bấm
+    truyền vào chat chứa poll để bấm thử ở nhóm test không bắn vào nhóm chính.
+    Trả về câu phản hồi ngắn cho admin."""
+    if chat_id is None:
+        chat_id = config.CHAT_ID
+    daily = await db.get_daily_vote(date)
+    if not daily:
+        return "Chưa có vote nào hôm nay."
+    if daily["status"] == "closed":
+        return "Vote hôm nay đã đóng rồi."
+
+    await _stop_telegram_poll(bot, daily, chat_id)
+    mon = roles.meal_name(date)
+    voters = await db.get_voters(date)
+    if not voters:
+        await db.set_vote_closed(date)
+        await bot.send_message(chat_id=chat_id, text=f"🔒 Vote đã đóng — hôm nay không có ai đặt {mon}.")
+        return f"Đã đóng vote — không có ai đặt {mon}."
+
+    roles_text = await roles.assign_and_settle(date, daily, voters)
+    header = f"🔒 *Vote đã đóng!* *{len(voters)} người* đặt {mon}."
+    await bot.send_message(
+        chat_id=chat_id,
+        text=header if roles_text is None else f"{header}\n\n{roles_text}",
+        parse_mode="Markdown",
+    )
+    return f"Đã đóng vote — {len(voters)} người đặt {mon}."
+
+
 async def close_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user and update.effective_user.id not in config.ADMIN_IDS:
         await update.message.reply_text("Chỉ admin mới dùng được lệnh này.")
         return
+    result = await lock_vote_now(context.bot, _today())
+    await update.message.reply_text(result)
 
-    today = _today()
-    daily = await db.get_daily_vote(today)
+
+async def handle_lock_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Nút 🔒 Đóng vote gắn dưới poll — chỉ admin bấm được."""
+    query = update.callback_query
+    if query.from_user.id not in config.ADMIN_IDS:
+        await query.answer("Chỉ admin mới đóng được vote.", show_alert=True)
+        return
+
+    # Bắt buộc tra ngày theo chính poll được bấm. KHÔNG fallback _today():
+    # nút trên poll lạ/poll cũ sẽ đóng oan vote của hôm nay.
+    daily = await db.get_daily_vote_by_message_id(query.message.message_id)
     if not daily:
-        await update.message.reply_text("Chưa có vote nào hôm nay.")
+        await query.answer("Poll này không gắn với vote nào — không đóng gì cả.", show_alert=True)
         return
-    if daily["status"] == "closed":
-        await update.message.reply_text("Vote hôm nay đã đóng rồi.")
-        return
-
-    voters = await db.get_voters(today)
-    if not voters:
-        await context.bot.send_message(
-            chat_id=config.CHAT_ID,
-            text="Hôm nay không có ai đặt cơm.",
-        )
-        return
-
-    picker = await db.pick_next_fetcher(today)
-    returner = await db.pick_next_returner(today, picker["id"])
-    await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
-
-    def _esc(s: str) -> str:
-        return s.replace("_", "\\_")
-
-    picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
-
-    if returner and returner["id"] != picker["id"]:
-        returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
-        roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
-    else:
-        roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
-
-    await context.bot.send_message(
-        chat_id=config.CHAT_ID,
-        text=f"🔒 Vote đã đóng! *{len(voters)} người* đặt cơm.\n\n{roles_text}",
-        parse_mode="Markdown",
-    )
-
-    # Đóng native poll nếu có
-    if daily.get("poll_id") and daily.get("poll_message_id"):
-        try:
-            await context.bot.stop_poll(
-                chat_id=config.CHAT_ID,
-                message_id=daily["poll_message_id"],
-            )
-        except Exception:
-            pass
-    # Đóng inline keyboard nếu có (fallback mode)
-    elif daily.get("poll_message_id") and not daily.get("poll_id"):
-        try:
-            await context.bot.edit_message_reply_markup(
-                chat_id=config.CHAT_ID,
-                message_id=daily["poll_message_id"],
-                reply_markup=None,
-            )
-        except Exception:
-            pass
+    result = await lock_vote_now(context.bot, daily["date"], chat_id=query.message.chat_id)
+    await query.answer(result, show_alert=True)
 
 
 async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -308,6 +331,7 @@ def get_handlers():
     return [
         CommandHandler("open_vote", open_vote),
         CommandHandler("close_vote", close_vote),
+        CallbackQueryHandler(handle_lock_vote_callback, pattern=r"^lock:vote$"),
         CallbackQueryHandler(handle_vote_callback, pattern=r"^vote:"),
         PollAnswerHandler(handle_poll_answer),
     ]

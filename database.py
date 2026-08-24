@@ -68,6 +68,9 @@ async def init_db() -> None:
             "ALTER TABLE daily_votes ADD COLUMN dish3_price INTEGER",
             "ALTER TABLE daily_votes ADD COLUMN dish4_price INTEGER",
             "ALTER TABLE vote_entries ADD COLUMN cost INTEGER",
+            "ALTER TABLE daily_votes ADD COLUMN building_order INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE daily_votes ADD COLUMN freeship INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE daily_votes ADD COLUMN early_close INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 await db.execute(col_sql)
@@ -223,6 +226,34 @@ async def set_vote_closed(date: str) -> None:
         )
         await db.commit()
 
+
+
+DAY_FLAGS = ("building_order", "freeship", "early_close")
+
+
+async def set_day_flag(date: str, flag: str, enabled: bool) -> None:
+    """Bật/tắt cờ theo ngày:
+    - building_order (cơm tòa nhà): 10:30 chốt sổ nhưng không phân công lấy/trả, không tính ship
+    - freeship: phân công như thường, chỉ bỏ ship khỏi tiền
+    - early_close: đóng vote sớm lúc 9:30 thay vì đợi 10:30"""
+    if flag not in DAY_FLAGS:
+        raise ValueError(f"Unknown day flag: {flag}")
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')", (date,),
+        )
+        await db.execute(
+            f"UPDATE daily_votes SET {flag} = ? WHERE date = ?",
+            (1 if enabled else 0, date),
+        )
+        await db.commit()
+
+
+def _effective_ship(row) -> int:
+    """Ship dùng để tính tiền — 0 nếu ngày cơm tòa nhà hoặc freeship."""
+    if row["building_order"] or row["freeship"]:
+        return 0
+    return row["ship_fee"] or 0
 
 
 async def set_cost_per_person(date: str, cost: int) -> None:
@@ -486,7 +517,7 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
         params = (f"{year_month}-%", max_date) if max_date else (f"{year_month}-%",)
         async with db.execute(
             f"""SELECT u.id AS user_id, u.full_name, u.rotation_index, ve.date, ve.cost,
-                      dv.price, dv.ship_fee,
+                      dv.price, dv.ship_fee, dv.building_order, dv.freeship,
                       CASE ve.dish
                           WHEN dv.dish1 THEN dv.dish1_price
                           WHEN dv.dish2 THEN dv.dish2_price
@@ -518,7 +549,7 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
             amount = e["cost"]
         else:
             count = day_voter_counts[e["date"]]
-            ship = e.get("ship_fee") or 0
+            ship = _effective_ship(e)
             unit = e["dish_price"] if e["dish_price"] is not None else e["price"]
             amount = unit + round(ship / count)
         totals[uid]["meal_count"] += 1
@@ -618,7 +649,7 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
         placeholders = ",".join("?" * len(day_dates))
         async with db.execute(
             f"""SELECT ve.user_id, u.full_name, u.rotation_index, ve.date, ve.cost,
-                       dv.price, dv.ship_fee,
+                       dv.price, dv.ship_fee, dv.building_order, dv.freeship,
                        CASE ve.dish
                            WHEN dv.dish1 THEN dv.dish1_price
                            WHEN dv.dish2 THEN dv.dish2_price
@@ -654,7 +685,7 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
             amount = e["cost"]
         else:
             count = day_voter_counts[e["date"]]
-            ship = e.get("ship_fee") or 0
+            ship = _effective_ship(e)
             unit = e["dish_price"] if e["dish_price"] is not None else e["price"]
             amount = unit + round(ship / count)
         votes_map[name][e["date"]] = amount
@@ -813,6 +844,9 @@ async def get_week_data(week_dates: list) -> list:
                     "dish3_price": None,
                     "dish4_price": None,
                     "ship_fee": None,
+                    "building_order": 0,
+                    "freeship": 0,
+                    "early_close": 0,
                 })
                 continue
 
@@ -850,6 +884,9 @@ async def get_week_data(week_dates: list) -> list:
                 "dish3_price": dv["dish3_price"],
                 "dish4_price": dv["dish4_price"],
                 "ship_fee": dv["ship_fee"],
+                "building_order": dv["building_order"],
+                "freeship": dv["freeship"],
+                "early_close": dv["early_close"],
             })
 
     return results
@@ -956,7 +993,7 @@ async def snapshot_day_costs(date: str) -> int:
         if not entries:
             return 0
         count = len(entries)
-        ship = dv["ship_fee"] or 0
+        ship = _effective_ship(dv)
         # Khớp giá theo món, ưu tiên slot ĐẦU (giống SQL CASE), bỏ qua tên None.
         # Gán dish4→dish1 để dish1 ghi sau cùng → thắng khi trùng tên.
         price_by_dish = {}

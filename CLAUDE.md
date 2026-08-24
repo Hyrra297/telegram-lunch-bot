@@ -34,7 +34,8 @@ python bot.py
 | 20:00 | T5 | **`open_vote_friday`**: tạo vote bún đậu cho **thứ 6** (offset=1, carryover menu từ thứ 6 trước), wording "ngày mai". Thứ 6 KHÔNG digest |
 | 19:00 | CN–T4 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai. Không chạy T5 (không digest trước thứ 6) |
 | 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). Thứ 6: giờ vote đã có từ 20:00 T5 → 08:30 chỉ **nhắc** như mọi ngày (job 08:30 vẫn là lưới an toàn nếu job 20:00 lỡ) |
-| 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền |
+| 09:30 | T2–T6 | **`early_close`**: CHỈ đóng vote cho ngày admin tick "⏱️ Đóng vote 9:30" (`daily_votes.early_close=1`) — gọi `lock_vote_now()` (đóng poll + phân công + tính tiền, y như 10:30 nhưng sớm hơn). Ngày không tick: không làm gì, vote mở tới 10:30 như thường. Giờ đổi qua `EARLY_CLOSE_TIME` |
+| 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền. **Ngày tick "Cơm tòa nhà"** (`daily_votes.building_order=1`): chỉ gửi tin chốt sổ (không giải thích lý do), KHÔNG phân công lấy/trả (round-robin giữ nguyên), KHÔNG tính ship. **Ngày tick "Freeship"** (`daily_votes.freeship=1`): phân công như thường, chỉ bỏ ship |
 | 10:30 | T6 | Đóng vote + **1 picker** đi lấy bún đậu (luôn 1 người, bất kể số suất). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
 | 15:00 | T6 | **`friday_settle`**: gọi `snapshot_day_costs(date)` — tính và khoá tiền từng người vào `vote_entries.cost` (mỗi người = giá món + ship/số người). Im lặng (không gửi tin) |
@@ -50,13 +51,22 @@ báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers
 
 **Template bún đậu mặc định**: Mỗi thứ 6 lúc 08:30, job morning gọi `db.apply_friday_template(date)` để tự áp menu bún đậu cố định — không cần admin làm gì. Template lưu ở `settings.friday_template` (JSON: `{"dishes": [...], "prices": [...], "ship_fee": int, "menu_image": "fri.jpg"}`). Hàm chỉ áp nếu ngày đó **chưa có món** — nếu admin đã set món khác qua web (override) hoặc dùng `/skip_today`, template không ghi đè. Để đổi menu bún đậu mặc định: cập nhật giá trị setting `friday_template` trong DB (không cần deploy lại). Ảnh dùng lại `fri.jpg` (upload một lần, tái sử dụng mỗi tuần). Từ 2026-07-02: nguồn menu thứ 6 ưu tiên **copy nguyên thứ 6 gần nhất có món** (`get_friday_source(date)` — lùi tối đa 8 tuần), `friday_template` chỉ còn là **fallback** khi chưa từng có thứ 6 nào có món. Web tab "Tuần này" cũng preview thứ 6 sắp tới bằng chính nguồn này (`_apply_friday_preview`) nên hiện sẵn món/giá/ảnh cả tuần, kèm nhãn "🍜 Bún đậu (theo tuần trước)". Sửa menu một thứ 6 → thứ 6 sau tự kế thừa.
 
-Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (18:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (19:00)
+Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (18:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (19:00), `EARLY_CLOSE_TIME` (09:30)
+
+## Đóng vote sớm / đóng tay
+Ba đường đóng vote đều gọi **cùng một luật** trong `roles.py` (`assign_and_settle`) nên không lệch nhau — thứ 6 chỉ 1 người lấy, ngày cơm tòa nhà không phân công, freeship không cộng ship:
+- **Nút `🔒 Đóng vote (admin)`** gắn ngay dưới poll (`_build_lock_keyboard()` truyền vào `send_poll(reply_markup=...)`). Telegram KHÔNG cho người thật "Stop poll" của poll do bot tạo → phải đi qua bot. Callback `lock:vote` → `handle_lock_vote_callback`, chặn non-admin bằng alert. Nút lấy ngày từ `poll_message_id` (không dùng `_today()`) nên poll tạo tối hôm trước vẫn đóng đúng ngày.
+- **`/close_vote`** — cùng logic, qua `lock_vote_now(bot, date)`.
+- **Job `early_close` 09:30** — tự động cho ngày đã tick.
+
+Sau khi đóng sớm, job 10:30 thấy `picker_user_id` đã có (hoặc ngày tòa nhà đã `closed`) → im lặng, không phân công lại, không gửi tin trùng.
 
 ## Cấu trúc file quan trọng
 - `bot.py` — entry point bot, đăng ký handlers + `set_my_commands`
 - `config.py` — đọc `.env`
 - `database.py` — toàn bộ SQL queries
-- `scheduler.py` — 6 jobs: open_vote_evening (18:00 CN–T4), admin_digest (19:00 CN–T4), morning (08:30 T2–T6), announce_roles (10:30 T2–T6), friday_settle (15:00 T6), monthly_summary (14:00)
+- `roles.py` — **luật chốt sổ dùng chung**: `assign_and_settle()` (phân công + khoá tiền theo loại ngày), `cost_per_person()`, `is_friday()`, `meal_name()`. Dùng bởi scheduler 10:30, `/close_vote`, nút 🔒, `/assign` — sửa luật chỉ sửa ở đây
+- `scheduler.py` — 8 jobs: open_vote_evening (18:00 CN–T4), open_vote_friday (20:00 T5), admin_digest (19:00 CN–T4), morning (08:30 T2–T6), early_close (09:30 T2–T6), announce_roles (10:30 T2–T6), friday_settle (15:00 T6), monthly_summary (14:00)
 - `admin_notify.py` — thông báo vote riêng cho admin (digest + real-time), gửi vào chat với bot
 - `image_summary.py` — render bảng tổng kết tiền cơm thành ảnh PNG (Pillow + font DejaVuSans)
 - `handlers/vote.py` — open/close vote, poll answer, inline keyboard fallback
@@ -72,6 +82,9 @@ users            -- id, username, full_name, rotation_index, return_index, activ
 daily_votes      -- date PK, status (open/closed/none), picker_user_id, returner_user_id,
                  --   dish1-4, poll_id, poll_message_id, price, ship_fee, menu_image,
                  --   dish1_price..dish4_price (nullable, giá từng món T6),
+                 --   building_order (0/1 — cơm tòa nhà: không phân công lấy/trả, không ship),
+                 --   freeship (0/1 — bỏ tiền ship, vẫn phân công bình thường),
+                 --   early_close (0/1 — đóng vote 9:30 thay vì 10:30),
                  --   price_override/ship_fee_override (nullable, dormant — không dùng nữa)
 vote_entries     -- date+user_id PK, dish, cost (nullable — snapshot 15h T6)
 settings         -- key/value (price, ship_fee, open_time, close_time)
@@ -123,6 +136,11 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 ### Web dashboard
 
 - Tab "Tuần này": xem ai đặt, nhập 4 món cho từng ngày (admin); riêng T6 nhập **giá từng món** (`dish1_price`..`dish4_price`) + **ship** cho bún đậu (đã bỏ ô "Giá/s" đơn giá)
+- Tab "Tuần này" — 2 ô tick per ngày (admin, cùng endpoint `POST /toggle-day-flag` với `flag=building_order|freeship`, whitelist `db.DAY_FLAGS`):
+  - **🏢 Cơm tòa nhà** (`daily_votes.building_order`): 10:30 vẫn đóng vote + chốt sổ + tính tiền nhưng KHÔNG phân công lấy cơm/trả hộp (round-robin không advance) và KHÔNG tính ship. Tin nhắn chỉ "Chốt sổ! Tổng có N người đặt cơm." — không giải thích lý do.
+  - **🚚 Freeship** (`daily_votes.freeship`): phân công lấy/trả bình thường, chỉ bỏ tiền ship khỏi công thức.
+  - **⏱️ Đóng vote 9:30** (`daily_votes.early_close`): job `early_close` đóng vote sớm hôm đó. Không tick → vote mở tới 10:30 như thường.
+  - Ai cũng thấy badge "🏢 Cơm tòa nhà" / "🚚 Freeship" trên ô ngày. Ship = 0 áp cả 4 chỗ tính tiền: `get_monthly_summary`, `get_monthly_detail`, `snapshot_day_costs` (helper `_effective_ship`), scheduler 10:30 và `/assign`. `/close_vote` thủ công vẫn KHÔNG áp logic building_order (giống giới hạn thứ 6) — ngày tòa nhà nên để luồng tự động xử lý.
 - Tab "Tháng": bảng chi tiết tiền từng người, nút toggle paid
 - Tab "Lịch sử": các ngày đã đóng vote
 - Ngày đã qua mà status vẫn `open` → hiện là `closed` (fix trong `get_week_data`)
@@ -132,7 +150,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Admin check: `user_id in config.ADMIN_IDS`
 - `close_daily_vote()`: đóng + chọn người (dùng lúc 10:30). T2–T5: picker + returner; T6 (bún đậu): luôn chỉ 1 picker (bất kể số suất), không dùng `returner_user_id`. T6 không phân công trả hộp và không tính tiền lúc 10:30.
 - `set_vote_closed()`: chỉ đóng, chưa chọn người (dùng trong announce_roles lúc 10:30)
-- **Giới hạn**: Lệnh admin thủ công `/close_vote` và `/assign` KHÔNG áp logic thứ 6 — nếu admin tự đóng/phân công vote thứ 6 sẽ vẫn gán người trả hộp và tính tiền ngay (logic cơm). Ngày bún đậu nên để luồng tự động (10:30 chỉ picker, 15:00 friday_settle) xử lý.
+- `/close_vote`, nút 🔒 và `/assign` đều đi qua `roles.assign_and_settle()` nên áp ĐÚNG luật thứ 6 / cơm tòa nhà / freeship (từ 2026-08-24; trước đó chúng gán sai cho ngày bún đậu).
 - Web cần restart uvicorn sau khi sửa code Python
 
 ## Lưu ý khi deploy

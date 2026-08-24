@@ -213,8 +213,9 @@ class _FakeUser:
 
 
 class _FakeMessage:
-    def __init__(self, message_id):
+    def __init__(self, message_id, chat_id=None):
         self.message_id = message_id
+        self.chat_id = chat_id if chat_id is not None else __import__("config").CHAT_ID
 
 
 class FakeCallbackQuery:
@@ -266,6 +267,12 @@ class _FakeBot:
 
     async def send_message(self, chat_id, text, **kwargs):
         self.sent.append((chat_id, text))
+
+    async def stop_poll(self, chat_id, message_id, **kwargs):
+        pass
+
+    async def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, **kwargs):
+        pass
 
 
 class _FakeContext:
@@ -365,6 +372,265 @@ class TestVoteNotifiesAdmin:
         query = FakeCallbackQuery(message_id=6003, user_id=42, data=CALLBACK_VOTE_IN)
         await handle_vote_callback(FakeUpdate(query), _FakeContext(bot))
         assert bot.sent == [(1001, "✅ Người Test vừa đặt cơm — tổng 1 người.")]
+
+
+# ── handlers/vote.py — /close_vote (admin đóng vote sớm) ──────────────────────
+
+class _FakeReplyMessage:
+    def __init__(self):
+        self.replies = []
+
+    async def reply_text(self, text, **kwargs):
+        self.replies.append(text)
+
+
+class _FakeCommandUpdate:
+    def __init__(self, user_id):
+        self.effective_user = _FakeUser(user_id)
+        self.message = _FakeReplyMessage()
+
+
+class TestCloseVoteCommand:
+    """/close_vote phải áp cùng luật với job 10:30: thứ 6 chỉ 1 người lấy,
+    ngày cơm tòa nhà không phân công, ngày freeship không tính ship."""
+
+    async def _setup(self, db, monkeypatch, date, voter_count, price=45000, ship=20000):
+        import config
+        import handlers.vote as votemod
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        monkeypatch.setattr(votemod, "_today", lambda: date)
+        for uid in range(1, voter_count + 1):
+            await db.add_user(uid, f"User {uid}", f"user{uid}")
+        await db.create_daily_vote(date, 7000, price, ship)
+        for uid in range(1, voter_count + 1):
+            await db.toggle_vote(date, uid)
+
+    async def test_rejects_non_admin(self, db, monkeypatch):
+        from handlers.vote import close_vote
+        await self._setup(db, monkeypatch, "2026-01-05", 2)
+        update = _FakeCommandUpdate(user_id=999)
+        await close_vote(update, _FakeContext(_FakeBot()))
+        assert "Chỉ admin" in update.message.replies[0]
+        daily = await db.get_daily_vote("2026-01-05")
+        assert daily["status"] == "open"
+
+    async def test_friday_assigns_one_picker(self, db, monkeypatch):
+        from handlers.vote import close_vote
+        friday = "2026-01-02"
+        await self._setup(db, monkeypatch, friday, 6)
+        bot = _FakeBot()
+        await close_vote(_FakeCommandUpdate(1001), _FakeContext(bot))
+
+        daily = await db.get_daily_vote(friday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is not None
+        assert daily["returner_user_id"] is None   # thứ 6 luôn chỉ 1 người
+        assert daily["cost_per_person"] is None    # tiền bún đậu đợi job 15h
+        text = " ".join(t for _, t in bot.sent)
+        assert "bún đậu" in text
+        assert "📦" not in text
+
+    async def test_building_order_day_skips_roles(self, db, monkeypatch):
+        from handlers.vote import close_vote
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday, 3)
+        await db.set_day_flag(monday, "building_order", True)
+        bot = _FakeBot()
+        await close_vote(_FakeCommandUpdate(1001), _FakeContext(bot))
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is None
+        assert daily["cost_per_person"] == 45000    # không cộng ship
+        text = " ".join(t for _, t in bot.sent)
+        assert "🛵" not in text
+        assert "📦" not in text
+
+    async def test_freeship_day_assigns_roles_without_ship(self, db, monkeypatch):
+        from handlers.vote import close_vote
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday, 2)
+        await db.set_day_flag(monday, "freeship", True)
+        bot = _FakeBot()
+        await close_vote(_FakeCommandUpdate(1001), _FakeContext(bot))
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["picker_user_id"] is not None
+        assert daily["cost_per_person"] == 45000    # không cộng ship
+        assert "🛵" in " ".join(t for _, t in bot.sent)
+
+    async def test_normal_day_assigns_picker_and_returner(self, db, monkeypatch):
+        from handlers.vote import close_vote
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday, 2)
+        bot = _FakeBot()
+        await close_vote(_FakeCommandUpdate(1001), _FakeContext(bot))
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["picker_user_id"] is not None
+        assert daily["returner_user_id"] is not None
+        assert daily["cost_per_person"] == 45000 + 10000   # ship 20k / 2 người
+        text = " ".join(t for _, t in bot.sent)
+        assert "🛵" in text
+        assert "📦" in text
+
+    async def test_announce_job_skips_after_manual_close(self, db, monkeypatch):
+        """Đóng tay 9h30 rồi → job 10:30 không phân công lại, không gửi thêm tin."""
+        from handlers.vote import close_vote
+        from scheduler import _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday, 2)
+        bot = _FakeBot()
+        await close_vote(_FakeCommandUpdate(1001), _FakeContext(bot))
+        picker_before = (await db.get_daily_vote(monday))["picker_user_id"]
+
+        class _App:
+            def __init__(self, bot):
+                self.bot = bot
+
+        sched_bot = _FakeBot()
+        await _scheduled_announce_roles(_App(sched_bot), today=monday)
+        assert sched_bot.sent == []
+        assert (await db.get_daily_vote(monday))["picker_user_id"] == picker_before
+
+
+class TestAssignCommand:
+    """/assign phân công tay phải áp cùng luật: thứ 6 chỉ 1 người, ngày cơm tòa nhà
+    không phân công."""
+
+    async def _setup(self, db, monkeypatch, date, count=3):
+        import config
+        import handlers.admin as adminmod
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        monkeypatch.setattr(adminmod, "_today", lambda: date)
+        for uid in range(1, count + 1):
+            await db.add_user(uid, f"User {uid}", f"user{uid}")
+        await db.create_daily_vote(date, 9000, 45000, 20000)
+        for uid in range(1, count + 1):
+            await db.toggle_vote(date, uid)
+        await db.set_vote_closed(date)
+
+    async def test_friday_assigns_one_picker(self, db, monkeypatch):
+        from handlers.admin import assign
+        friday = "2026-01-02"
+        await self._setup(db, monkeypatch, friday)
+        bot = _FakeBot()
+        await assign(_FakeCommandUpdate(1001), _FakeContext(bot))
+
+        daily = await db.get_daily_vote(friday)
+        assert daily["picker_user_id"] is not None
+        assert daily["returner_user_id"] is None
+        text = " ".join(t for _, t in bot.sent)
+        assert "bún đậu" in text
+        assert "📦" not in text
+
+    async def test_building_order_day_skips_roles(self, db, monkeypatch):
+        from handlers.admin import assign
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday)
+        await db.set_day_flag(monday, "building_order", True)
+        bot = _FakeBot()
+        await assign(_FakeCommandUpdate(1001), _FakeContext(bot))
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["picker_user_id"] is None
+        assert daily["cost_per_person"] == 45000
+        text = " ".join(t for _, t in bot.sent)
+        assert "🛵" not in text
+
+
+class TestLockVoteButton:
+    """Nút 🔒 Đóng vote gắn dưới poll — Telegram không cho người thật stop poll
+    của bot, nên bot phải cung cấp nút này."""
+
+    async def _setup(self, db, monkeypatch, date, voter_count=2):
+        import config
+        import handlers.vote as votemod
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        monkeypatch.setattr(votemod, "_today", lambda: date)
+        for uid in range(1, voter_count + 1):
+            await db.add_user(uid, f"User {uid}", f"user{uid}")
+        await db.create_daily_vote(date, 8000, 45000, 20000)
+        for uid in range(1, voter_count + 1):
+            await db.toggle_vote(date, uid)
+
+    async def test_non_admin_cannot_lock(self, db, monkeypatch):
+        from handlers.vote import handle_lock_vote_callback, CALLBACK_LOCK_VOTE
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday)
+        query = FakeCallbackQuery(message_id=8000, user_id=999, data=CALLBACK_LOCK_VOTE)
+        await handle_lock_vote_callback(FakeUpdate(query), _FakeContext(_FakeBot()))
+        assert "Chỉ admin" in query.answers[0]
+        assert (await db.get_daily_vote(monday))["status"] == "open"
+
+    async def test_admin_locks_vote_from_button(self, db, monkeypatch):
+        from handlers.vote import handle_lock_vote_callback, CALLBACK_LOCK_VOTE
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday)
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=8000, user_id=1001, data=CALLBACK_LOCK_VOTE)
+        await handle_lock_vote_callback(FakeUpdate(query), _FakeContext(bot))
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is not None
+        assert "🛵" in " ".join(t for _, t in bot.sent)
+
+    async def test_button_uses_message_date_not_today(self, db, monkeypatch):
+        """Poll tạo tối hôm trước cho ngày mai: bấm nút phải đóng vote của ĐÚNG ngày đó."""
+        from handlers.vote import handle_lock_vote_callback, CALLBACK_LOCK_VOTE
+        tomorrow = "2099-12-31"
+        await self._setup(db, monkeypatch, "2026-01-05", voter_count=0)
+        await db.add_user(7, "User 7", "user7")
+        await db.create_daily_vote(tomorrow, 8001, 45000, 20000)
+        await db.toggle_vote(tomorrow, 7)
+        query = FakeCallbackQuery(message_id=8001, user_id=1001, data=CALLBACK_LOCK_VOTE)
+        await handle_lock_vote_callback(FakeUpdate(query), _FakeContext(_FakeBot()))
+
+        assert (await db.get_daily_vote(tomorrow))["status"] == "closed"
+        assert (await db.get_daily_vote("2026-01-05"))["status"] == "open"
+
+    async def test_unknown_poll_does_not_close_today(self, db, monkeypatch):
+        """Bấm nút trên poll lạ (poll mẫu/poll cũ không có trong DB) KHÔNG được
+        đóng vote hôm nay — trước đây fallback _today() làm đúng chuyện đó."""
+        from handlers.vote import handle_lock_vote_callback, CALLBACK_LOCK_VOTE
+        today = "2026-01-05"
+        await self._setup(db, monkeypatch, today)
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=999999, user_id=1001, data=CALLBACK_LOCK_VOTE)
+        await handle_lock_vote_callback(FakeUpdate(query), _FakeContext(bot))
+
+        assert (await db.get_daily_vote(today))["status"] == "open"   # vote hôm nay còn nguyên
+        assert bot.sent == []                                        # không nhắn gì vào nhóm
+        assert "không" in query.answers[0].lower()
+
+    async def test_replies_into_chat_where_button_pressed(self, db, monkeypatch):
+        """Tin chốt sổ phải vào đúng nhóm chứa poll, không phải CHAT_ID cứng —
+        nếu không, bấm thử ở nhóm test sẽ bắn thông báo vào nhóm chính."""
+        import config
+        from handlers.vote import handle_lock_vote_callback, CALLBACK_LOCK_VOTE
+        monday = "2026-01-05"
+        await self._setup(db, monkeypatch, monday)
+        test_group = -5173498949
+        assert test_group != config.CHAT_ID
+        bot = _FakeBot()
+        query = FakeCallbackQuery(message_id=8000, user_id=1001, data=CALLBACK_LOCK_VOTE)
+        query.message.chat_id = test_group
+        await handle_lock_vote_callback(FakeUpdate(query), _FakeContext(bot))
+
+        assert [chat for chat, _ in bot.sent] == [test_group]
+
+    def test_lock_button_handler_registered(self):
+        from handlers.vote import get_handlers, handle_lock_vote_callback
+        callbacks = [getattr(h, "callback", None) for h in get_handlers()]
+        assert handle_lock_vote_callback in callbacks
+
+    def test_lock_keyboard_has_single_button(self):
+        from handlers.vote import _build_lock_keyboard, CALLBACK_LOCK_VOTE
+        kb = _build_lock_keyboard()
+        buttons = [b for row in kb.inline_keyboard for b in row]
+        assert len(buttons) == 1
+        assert buttons[0].callback_data == CALLBACK_LOCK_VOTE
 
 
 # ── handlers/vote.py — handle_poll_answer (native poll) ───────────────────────

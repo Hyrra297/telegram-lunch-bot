@@ -7,6 +7,7 @@ import aiosqlite
 
 import config
 import database as db
+import roles
 
 
 def _is_admin(user_id: int) -> bool:
@@ -215,10 +216,14 @@ async def skip_next_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+def _today() -> str:
+    return datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+
+
 @_require_admin
 async def assign(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Phân công thủ công khi vote đã đóng nhưng chưa có picker/returner."""
-    today = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    today = _today()
     daily = await db.get_daily_vote(today)
     if not daily:
         await update.message.reply_text("❌ Hôm nay chưa có vote nào.")
@@ -235,28 +240,11 @@ async def assign(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ Hôm nay không có ai vote.")
         return
 
-    picker = await db.pick_next_fetcher(today)
-    returner = await db.pick_next_returner(today, picker["id"])
-    await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
-
-    def _esc(s: str) -> str:
-        return s.replace("_", "\\_")
-
-    picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
-    if returner and returner["id"] != picker["id"]:
-        returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
-        roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
-    else:
-        roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
-
-    price = daily.get("price") or config.PRICE_PER_MEAL
-    ship_fee = daily.get("ship_fee") or config.SHIP_FEE
-    cost_per_person = price + round(ship_fee / len(voters))
-    await db.set_cost_per_person(today, cost_per_person)
-
+    roles_text = await roles.assign_and_settle(today, daily, voters)
+    header = f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt {roles.meal_name(today)}."
     await context.bot.send_message(
         chat_id=config.CHAT_ID,
-        text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt cơm.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
+        text=header if roles_text is None else f"{header}\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
         parse_mode="Markdown",
     )
 

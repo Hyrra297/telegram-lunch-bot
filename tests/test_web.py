@@ -186,6 +186,59 @@ async def test_save_friday_menu_items_preserves_uploaded_image(web_app, admin_co
     assert dv["menu_image"] == "custom.jpg"   # ảnh riêng được giữ nguyên
 
 
+# ── Toggle day flags (cơm tòa nhà / freeship) ─────────────────────────────────
+
+async def test_toggle_day_flag_requires_auth(web_app):
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test") as client:
+        resp = await client.post("/toggle-day-flag", data={"date": "2026-03-10", "flag": "building_order", "enabled": "1"})
+    assert resp.status_code == 403
+
+
+async def test_toggle_day_flag_success(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/toggle-day-flag", data={"date": "2026-03-10", "flag": "building_order", "enabled": "1"})
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        resp = await client.post("/toggle-day-flag", data={"date": "2026-03-10", "flag": "freeship", "enabled": "1"})
+        assert resp.json()["ok"] is True
+        dv = await db_mod.get_daily_vote("2026-03-10")
+        assert dv["building_order"] == 1
+        assert dv["freeship"] == 1
+
+        # bỏ tick
+        resp = await client.post("/toggle-day-flag", data={"date": "2026-03-10", "flag": "building_order", "enabled": "0"})
+        assert resp.json()["ok"] is True
+        dv = await db_mod.get_daily_vote("2026-03-10")
+        assert dv["building_order"] == 0
+        assert dv["freeship"] == 1
+
+
+async def test_toggle_day_flag_rejects_unknown_flag(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/toggle-day-flag", data={"date": "2026-03-10", "flag": "status", "enabled": "1"})
+    assert resp.status_code == 400
+
+
+async def test_day_flag_checkboxes_only_for_admin(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    assert resp.text.count('name="building_order"') == 5   # 5 ngày T2–T6 đều có ô tick
+    assert resp.text.count('name="freeship"') == 5
+    assert resp.text.count('name="early_close"') == 5
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test") as client:
+        resp = await client.get("/")
+    assert 'name="building_order"' not in resp.text
+    assert 'name="freeship"' not in resp.text
+    assert 'name="early_close"' not in resp.text
+
+
 # ── Toggle paid ───────────────────────────────────────────────────────────────
 
 async def test_toggle_paid_requires_auth(web_app):

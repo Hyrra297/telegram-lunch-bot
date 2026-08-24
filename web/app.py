@@ -321,6 +321,23 @@ async def upload_qr(
     return JSONResponse({"ok": True, "url": f"/static/qr/{type}{ext}"})
 
 
+@app.post("/toggle-day-flag")
+async def toggle_day_flag_endpoint(
+    request: Request,
+    date: str = Form(...),
+    flag: str = Form(...),
+    enabled: str = Form("0"),
+):
+    """Bật/tắt cờ theo ngày: building_order (cơm tòa nhà) hoặc freeship."""
+    if not _is_admin(request):
+        return JSONResponse({"ok": False, "error": "Không có quyền"}, status_code=403)
+    if flag not in db.DAY_FLAGS:
+        return JSONResponse({"ok": False, "error": "Cờ không hợp lệ"}, status_code=400)
+    value = enabled == "1"
+    await db.set_day_flag(date, flag, value)
+    return JSONResponse({"ok": True, "flag": flag, "enabled": value})
+
+
 @app.post("/toggle-paid")
 async def toggle_paid_endpoint(
     request: Request,

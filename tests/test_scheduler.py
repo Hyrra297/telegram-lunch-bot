@@ -222,7 +222,7 @@ class TestBuildScheduler:
         from scheduler import build_scheduler
         sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
         ids = {j.id for j in sched.get_jobs()}
-        assert ids == {"open_vote_evening", "open_vote_friday", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle"}
+        assert ids == {"open_vote_evening", "open_vote_friday", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle", "early_close"}
         assert "vote_reminder" not in ids
         assert "open_vote" not in ids
 
@@ -244,6 +244,15 @@ class TestBuildScheduler:
         assert "hour='20'" in trig
         assert "day_of_week='sun,mon,tue,wed'" in trig
         assert "thu" not in trig
+
+    def test_early_close_job_trigger(self):
+        from scheduler import build_scheduler
+        sched = build_scheduler(object())
+        jobs = {j.id: j for j in sched.get_jobs()}
+        trig = str(jobs["early_close"].trigger)
+        assert "hour='9'" in trig
+        assert "minute='30'" in trig
+        assert "day_of_week='mon-fri'" in trig
 
     def test_morning_job_trigger(self):
         from scheduler import build_scheduler
@@ -383,6 +392,82 @@ class TestAnnounceRoles:
         assert "đi lấy bún đậu" in joined
         assert "trả hộp" not in joined
 
+    async def test_building_order_day_skips_roles_and_ship(self, db):
+        """Ngày đặt cơm tòa nhà: chốt sổ, KHÔNG phân công lấy/trả, KHÔNG tính ship,
+        tin nhắn chỉ chốt sổ — không giải thích lý do."""
+        from scheduler import _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup_voters(db, monday, 3)
+        await db.set_day_flag(monday, "building_order", True)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=monday)
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is None
+        assert daily["returner_user_id"] is None
+        assert daily["cost_per_person"] == 45000      # chỉ giá suất, không cộng ship
+        joined = " ".join(app.bot.sent_messages)
+        assert "Chốt sổ" in joined
+        assert "tòa nhà" not in joined  # không giải thích lý do
+        assert "🛵" not in joined       # không có dòng phân công đi lấy
+        assert "📦" not in joined       # không có dòng phân công trả hộp
+
+    async def test_building_order_rerun_sends_once(self, db):
+        """Job chạy lại (misfire/retry) không gửi trùng tin chốt sổ."""
+        from scheduler import _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup_voters(db, monday, 2)
+        await db.set_day_flag(monday, "building_order", True)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=monday)
+        await _scheduled_announce_roles(app, today=monday)
+        assert len(app.bot.sent_messages) == 1
+
+    async def test_building_order_keeps_rotation_untouched(self, db):
+        """Ngày tòa nhà không advance round-robin lấy cơm/trả hộp."""
+        from scheduler import _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup_voters(db, monday, 2)
+        await db.set_day_flag(monday, "building_order", True)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=monday)
+        for uid in (1, 2):
+            user = await db.get_user(uid)
+            assert user["last_picked_at"] is None
+            assert user["last_returned_at"] is None
+
+    async def test_building_order_friday_no_picker_no_cost(self, db):
+        """Thứ 6 tick tòa nhà: cũng không phân công; tiền vẫn đợi job 15h."""
+        from scheduler import _scheduled_announce_roles
+        friday = "2026-01-02"
+        await self._setup_voters(db, friday, 5)
+        await db.set_day_flag(friday, "building_order", True)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=friday)
+
+        daily = await db.get_daily_vote(friday)
+        assert daily["picker_user_id"] is None
+        assert daily["cost_per_person"] is None
+        joined = " ".join(app.bot.sent_messages)
+        assert "Chốt sổ" in joined
+        assert "đi lấy bún đậu" not in joined
+
+    async def test_freeship_day_assigns_roles_without_ship(self, db):
+        """Ngày freeship: phân công lấy/trả như thường, chỉ bỏ ship khỏi tiền."""
+        from scheduler import _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup_voters(db, monday, 2)
+        await db.set_day_flag(monday, "freeship", True)
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=monday)
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["picker_user_id"] is not None    # vẫn phân công như thường
+        assert daily["cost_per_person"] == 45000      # không cộng ship
+        joined = " ".join(app.bot.sent_messages)
+        assert "🛵" in joined
+
     async def test_non_friday_assigns_returner(self, db):
         from scheduler import _scheduled_announce_roles
         monday = "2026-01-05"
@@ -417,6 +502,69 @@ class TestOpenVoteUsesGlobalPrice:
         daily = await db.get_daily_vote(today)
         assert daily["price"] == config.PRICE_PER_MEAL   # 45000 — KHÔNG dùng override 30000
         assert daily["ship_fee"] == config.SHIP_FEE      # 20000 — KHÔNG dùng override 5000
+
+
+class TestEarlyClose:
+    """Job 9:30 — chỉ đóng vote sớm cho ngày được tick early_close."""
+
+    async def _setup(self, db, date, count=2):
+        for uid in range(1, count + 1):
+            await db.add_user(uid, f"User {uid}", f"user{uid}")
+        await db.create_daily_vote(date, 100, 45000, 20000)
+        for uid in range(1, count + 1):
+            await db.toggle_vote(date, uid)
+
+    async def test_untagged_day_stays_open(self, db):
+        from scheduler import _scheduled_early_close
+        monday = "2026-01-05"
+        await self._setup(db, monday)
+        app = FakeApp()
+        await _scheduled_early_close(app, today=monday)
+        assert (await db.get_daily_vote(monday))["status"] == "open"
+        assert app.bot.sent_messages == []
+
+    async def test_tagged_day_closes_and_assigns(self, db):
+        from scheduler import _scheduled_early_close
+        monday = "2026-01-05"
+        await self._setup(db, monday)
+        await db.set_day_flag(monday, "early_close", True)
+        app = FakeApp()
+        await _scheduled_early_close(app, today=monday)
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is not None
+        assert "🛵" in " ".join(app.bot.sent_messages)
+
+    async def test_announce_job_silent_after_early_close(self, db):
+        """Đã đóng sớm 9:30 → job 10:30 không phân công lại, không gửi thêm tin."""
+        from scheduler import _scheduled_early_close, _scheduled_announce_roles
+        monday = "2026-01-05"
+        await self._setup(db, monday)
+        await db.set_day_flag(monday, "early_close", True)
+        await _scheduled_early_close(FakeApp(), today=monday)
+        picker_before = (await db.get_daily_vote(monday))["picker_user_id"]
+
+        app = FakeApp()
+        await _scheduled_announce_roles(app, today=monday)
+        assert app.bot.sent_messages == []
+        assert (await db.get_daily_vote(monday))["picker_user_id"] == picker_before
+
+    async def test_building_order_day_closes_without_roles(self, db):
+        from scheduler import _scheduled_early_close
+        monday = "2026-01-05"
+        await self._setup(db, monday, 3)
+        await db.set_day_flag(monday, "early_close", True)
+        await db.set_day_flag(monday, "building_order", True)
+        app = FakeApp()
+        await _scheduled_early_close(app, today=monday)
+
+        daily = await db.get_daily_vote(monday)
+        assert daily["status"] == "closed"
+        assert daily["picker_user_id"] is None
+        joined = " ".join(app.bot.sent_messages)
+        assert "🛵" not in joined
+        assert "📦" not in joined
 
 
 class TestFridaySettle:

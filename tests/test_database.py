@@ -77,6 +77,81 @@ async def test_close_daily_vote_sets_picker(db):
     assert user["last_picked_at"] == "2026-03-10"
 
 
+async def test_set_day_flag_building_order(db):
+    await db.create_daily_vote("2026-03-10", 100, 35000, 20000)
+    await db.set_day_flag("2026-03-10", "building_order", True)
+    vote = await db.get_daily_vote("2026-03-10")
+    assert vote["building_order"] == 1
+    await db.set_day_flag("2026-03-10", "building_order", False)
+    vote = await db.get_daily_vote("2026-03-10")
+    assert vote["building_order"] == 0
+
+
+async def test_set_day_flag_freeship_creates_placeholder_row(db):
+    # Chưa có row daily_votes (vote chưa mở) → tick từ web vẫn phải lưu được
+    await db.set_day_flag("2026-03-11", "freeship", True)
+    vote = await db.get_daily_vote("2026-03-11")
+    assert vote is not None
+    assert vote["status"] == "none"
+    assert vote["freeship"] == 1
+
+
+async def test_set_day_flag_rejects_unknown_flag(db):
+    with pytest.raises(ValueError):
+        await db.set_day_flag("2026-03-10", "status", True)
+
+
+async def test_get_week_data_includes_day_flags(db):
+    await db.create_daily_vote("2026-03-10", 100, 35000, 20000)
+    await db.set_day_flag("2026-03-10", "building_order", True)
+    await db.set_day_flag("2026-03-10", "freeship", True)
+    days = await db.get_week_data(["2026-03-09", "2026-03-10"])
+    assert days[0]["building_order"] == 0   # ngày không có row → mặc định 0
+    assert days[0]["freeship"] == 0
+    assert days[1]["building_order"] == 1
+    assert days[1]["freeship"] == 1
+
+
+async def test_monthly_summary_excludes_ship_on_freeship_day(db):
+    await db.add_user(1, "A", "a")
+    await db.add_user(2, "B", "b")
+    await db.create_daily_vote("2026-03-10", 100, 45000, 20000)
+    await db.toggle_vote("2026-03-10", 1)
+    await db.toggle_vote("2026-03-10", 2)
+    await db.set_day_flag("2026-03-10", "freeship", True)
+    await db.set_vote_closed("2026-03-10")
+    rows = await db.get_monthly_summary("2026-03")
+    assert all(r["total"] == 45000 for r in rows)   # chỉ giá suất, không cộng ship
+
+
+async def test_monthly_detail_excludes_ship_on_building_day(db):
+    await db.add_user(1, "A", "a")
+    await db.create_daily_vote("2026-03-10", 100, 45000, 20000)
+    await db.toggle_vote("2026-03-10", 1)
+    await db.set_day_flag("2026-03-10", "building_order", True)
+    await db.set_vote_closed("2026-03-10")
+    detail = await db.get_monthly_detail("2026-03")
+    assert detail["members"][0]["votes"]["2026-03-10"] == 45000
+
+
+async def test_snapshot_day_costs_excludes_ship_on_freeship_day(db):
+    import aiosqlite
+    await db.add_user(1, "A", "a")
+    await db.create_daily_vote("2026-01-02", 100, 45000, 0)
+    await db.save_menu_items("2026-01-02", ["Bún đậu"])
+    await db.set_day_dish_prices("2026-01-02", [35000])
+    await db.set_day_ship("2026-01-02", 20000)
+    await db.vote_for_dish("2026-01-02", 1, "Bún đậu")
+    await db.set_day_flag("2026-01-02", "freeship", True)
+    await db.snapshot_day_costs("2026-01-02")
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT cost FROM vote_entries WHERE date=? AND user_id=?", ("2026-01-02", 1)
+        ) as cur:
+            row = await cur.fetchone()
+    assert row[0] == 35000   # giá món, không cộng ship
+
+
 async def test_get_daily_vote_by_message_id(db):
     await db.create_daily_vote("2026-03-10", 777, 35000, 20000)
     vote = await db.get_daily_vote_by_message_id(777)

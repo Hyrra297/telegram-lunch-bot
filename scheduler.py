@@ -10,6 +10,7 @@ from telegram.ext import Application
 
 import config
 import database as db
+import roles
 from image_summary import render_summary_image
 from admin_notify import send_vote_digest, notify_admins
 
@@ -22,9 +23,7 @@ def _target_date(day_offset: int = 0) -> str:
     return (datetime.now(tz) + timedelta(days=day_offset)).strftime("%Y-%m-%d")
 
 
-def _is_friday(date_str: str) -> bool:
-    """True nếu date_str (YYYY-MM-DD) là thứ 6."""
-    return datetime.strptime(date_str, "%Y-%m-%d").weekday() == 4
+_is_friday = roles.is_friday   # thứ 6 = ngày bún đậu; luật dùng chung ở roles.py
 
 
 def _open_vote_wording(day_offset: int, date_str: str | None = None) -> dict:
@@ -105,7 +104,7 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
                         caption=wording["caption"],
                     )
 
-        from handlers.vote import _build_keyboard, _build_vote_text
+        from handlers.vote import _build_keyboard, _build_vote_text, _build_lock_keyboard
         dishes = await db.get_menu_items(target_str)
         logger.info("Dishes for %s: %s", target_str, dishes)
 
@@ -116,6 +115,7 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
                 options=dishes,
                 is_anonymous=False,
                 allows_multiple_answers=False,
+                reply_markup=_build_lock_keyboard(),
             )
             await db.create_daily_vote(target_str, poll_msg.message_id, price, ship_fee)
             await db.set_poll_id(target_str, poll_msg.poll.id)
@@ -187,6 +187,7 @@ async def _scheduled_announce_roles(app: Application, today: str | None = None) 
             return
 
         # Đóng vote nếu đang mở
+        was_open = daily["status"] == "open"
         if daily["status"] == "open":
             # Đóng poll / keyboard trên Telegram
             if daily.get("poll_id") and daily.get("poll_message_id"):
@@ -222,41 +223,41 @@ async def _scheduled_announce_roles(app: Application, today: str | None = None) 
             )
             return
 
-        def _esc(s: str) -> str:
-            return s.replace("_", "\\_")
+        # Ngày cơm tòa nhà đã đóng từ trước (đóng tay/đóng sớm) → job chạy lại, im lặng
+        if daily.get("building_order") and not was_open:
+            logger.info("Building-order day %s already closed, skip announce.", today)
+            return
 
-        picker = await db.pick_next_fetcher(today)
-        picker_mention = f"@{_esc(picker['username'])}" if picker["username"] else _esc(picker["full_name"])
-
-        if _is_friday(today):
-            # Ngày bún đậu: luôn chỉ 1 người đi lấy, bất kể số suất. Không trả hộp.
-            await db.close_daily_vote(today, picker["id"], None)
-            roles_text = f"🛵 {picker_mention} đi lấy bún đậu"
-        else:
-            returner = await db.pick_next_returner(today, picker["id"])
-            await db.close_daily_vote(today, picker["id"], returner["id"] if returner else None)
-            if returner and returner["id"] != picker["id"]:
-                returner_mention = f"@{_esc(returner['username'])}" if returner["username"] else _esc(returner["full_name"])
-                roles_text = f"🛵 {picker_mention} đi lấy cơm\n📦 {returner_mention} trả hộp"
-            else:
-                roles_text = f"🛵 {picker_mention} đi lấy cơm và trả hộp"
-
-        # Tính chi phí mỗi người — thứ 6 (bún đậu) đợi job 15h, KHÔNG tính lúc 10h30
-        if not _is_friday(today):
-            price = daily.get("price") or config.PRICE_PER_MEAL
-            ship_fee = daily.get("ship_fee") or config.SHIP_FEE
-            cost_per_person = price + round(ship_fee / len(voters))
-            await db.set_cost_per_person(today, cost_per_person)
-
-        mon = "bún đậu" if _is_friday(today) else "cơm"
+        roles_text = await roles.assign_and_settle(today, daily, voters)
+        mon = roles.meal_name(today)
+        header = f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt {mon}."
         await app.bot.send_message(
             chat_id=config.CHAT_ID,
-            text=f"📋 *Chốt sổ!* Tổng có *{len(voters)} người* đặt {mon}.\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
+            text=header if roles_text is None else f"{header}\n\n🍱 *Phân công hôm nay:*\n{roles_text}",
             parse_mode="Markdown",
         )
-        logger.info("✅ Roles assigned for %s, picker=%s", today, picker["username"])
+        logger.info("✅ Announce done for %s (roles=%s)", today, bool(roles_text))
     except Exception:
         logger.exception("❌ announce_roles failed for %s", today)
+
+
+async def _scheduled_early_close(app: Application, today: str | None = None) -> None:
+    """09:30 T2–T6 — chỉ đóng vote sớm cho ngày admin đã tick "Đóng vote 9:30".
+    Ngày không tick: không làm gì, vote vẫn mở tới 10:30 như thường."""
+    if today is None:
+        today = _target_date(0)
+    try:
+        daily = await db.get_daily_vote(today)
+        if not daily or not daily.get("early_close"):
+            return
+        if daily["status"] != "open":
+            logger.info("Early close %s: vote not open (%s), skip.", today, daily["status"])
+            return
+        from handlers.vote import lock_vote_now
+        result = await lock_vote_now(app.bot, today)
+        logger.info("✅ Early close %s: %s", today, result)
+    except Exception:
+        logger.exception("❌ early_close failed for %s", today)
 
 
 async def _scheduled_monthly_summary(app: Application) -> None:
@@ -349,6 +350,13 @@ def build_scheduler(app: Application) -> AsyncIOScheduler:
         _scheduled_morning,
         trigger=CronTrigger(hour=morning_h, minute=morning_m, day_of_week="mon-fri", timezone=tz),
         args=[app], id="morning", replace_existing=True, misfire_grace_time=300,
+    )
+    # 09:30 T2-T6: đóng vote sớm — CHỈ cho ngày admin tick "Đóng vote 9:30"
+    early_h, early_m = _hm(config.EARLY_CLOSE_TIME)
+    scheduler.add_job(
+        _scheduled_early_close,
+        trigger=CronTrigger(hour=early_h, minute=early_m, day_of_week="mon-fri", timezone=tz),
+        args=[app], id="early_close", replace_existing=True, misfire_grace_time=300,
     )
     # 10:30 T2-T6: đóng vote + chốt sổ
     scheduler.add_job(

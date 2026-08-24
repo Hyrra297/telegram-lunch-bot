@@ -517,6 +517,18 @@
             <span class="status-badge" style="background:#fff7ed;color:#c2410c">🍜 Bún đậu (theo tuần trước)</span>
           {% endif %}
 
+          {% if day.building_order %}
+            <span class="status-badge" style="background:#eef2ff;color:#4338ca">🏢 Cơm tòa nhà</span>
+          {% endif %}
+
+          {% if day.freeship %}
+            <span class="status-badge" style="background:#ecfdf5;color:#047857">🚚 Freeship</span>
+          {% endif %}
+
+          {% if day.early_close %}
+            <span class="status-badge" style="background:#fef2f2;color:#b91c1c">⏱️ Đóng vote 9:30</span>
+          {% endif %}
+
           {# ── Menu image ── #}
           {% if day.menu_image %}
             <div class="menu-img-wrap" onclick="openLightbox('/static/menus/{{ day.menu_image }}')">
@@ -527,6 +539,21 @@
 
           {# ── Upload button (admin only) ── #}
           {% if is_admin %}
+          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer">
+            <input type="checkbox" name="building_order" {% if day.building_order %}checked{% endif %}
+                   onchange="toggleDayFlag('{{ day.date }}', 'building_order', this)">
+            🏢 Cơm tòa nhà (không phân công lấy/trả, không ship)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer">
+            <input type="checkbox" name="freeship" {% if day.freeship %}checked{% endif %}
+                   onchange="toggleDayFlag('{{ day.date }}', 'freeship', this)">
+            🚚 Freeship (không tính tiền ship)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer">
+            <input type="checkbox" name="early_close" {% if day.early_close %}checked{% endif %}
+                   onchange="toggleDayFlag('{{ day.date }}', 'early_close', this)">
+            ⏱️ Đóng vote 9:30 (thay vì 10:30)
+          </label>
           <label class="upload-btn" id="lbl-{{ day.date }}">
             📷 {{ 'Đổi ảnh' if day.menu_image else 'Tải ảnh thực đơn' }}
             <input type="file" accept="image/*" style="display:none"
@@ -898,6 +925,26 @@ async function saveMenuItems(event, date) {
     alert('Lỗi kết nối');
     btn.disabled = false; btn.textContent = '💾 Lưu';
   }
+}
+
+async function toggleDayFlag(date, flag, checkbox) {
+  checkbox.disabled = true;
+  const form = new FormData();
+  form.append('date', date);
+  form.append('flag', flag);
+  form.append('enabled', checkbox.checked ? '1' : '0');
+  try {
+    const res = await fetch('/toggle-day-flag', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!data.ok) {
+      checkbox.checked = !checkbox.checked;
+      alert('Lỗi: ' + (data.error || 'Không thể lưu'));
+    }
+  } catch(e) {
+    checkbox.checked = !checkbox.checked;
+    alert('Lỗi kết nối');
+  }
+  checkbox.disabled = false;
 }
 
 async function togglePaid(month, userId, btn) {
