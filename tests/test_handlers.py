@@ -263,10 +263,23 @@ class TestHandleVoteCallback:
 
 class _FakeBot:
     def __init__(self):
-        self.sent = []  # list[(chat_id, text)]
+        self.sent = []      # list[(chat_id, text)]
+        self.polls = []     # list[dict] — {question, options}
+        self.photos = []    # list[str] — caption
 
     async def send_message(self, chat_id, text, **kwargs):
         self.sent.append((chat_id, text))
+        return type("_M", (), {"message_id": 3001})()
+
+    async def send_poll(self, chat_id, question, options, **kwargs):
+        self.polls.append({"question": question, "options": options})
+        return type("_M", (), {
+            "message_id": 3002,
+            "poll": type("_P", (), {"id": "fake-poll"})(),
+        })()
+
+    async def send_photo(self, chat_id, photo, caption=None, **kwargs):
+        self.photos.append(caption)
 
     async def stop_poll(self, chat_id, message_id, **kwargs):
         pass
@@ -492,6 +505,105 @@ class TestCloseVoteCommand:
         await _scheduled_announce_roles(_App(sched_bot), today=monday)
         assert sched_bot.sent == []
         assert (await db.get_daily_vote(monday))["picker_user_id"] == picker_before
+
+
+class TestOpenVoteTomorrowCommand:
+    """/open_vote_mai — mở vote cho NGÀY MAI bằng tay (job 18:00/20:00 lỡ thì dùng).
+    Khác job tự động: KHÔNG bắt buộc phải có ảnh thực đơn."""
+
+    async def test_rejects_non_admin(self, db, monkeypatch):
+        import config
+        from handlers.vote import open_vote_tomorrow
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        update = _FakeCommandUpdate(user_id=999)
+        bot = _FakeBot()
+        await open_vote_tomorrow(update, _FakeContext(bot))
+        assert "Chỉ admin" in update.message.replies[0]
+        assert bot.polls == [] and bot.sent == []
+
+    async def test_creates_vote_for_tomorrow_not_today(self, db, monkeypatch):
+        import config
+        import scheduler
+        from handlers.vote import open_vote_tomorrow
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        today, tomorrow = "2026-01-05", "2026-01-06"
+        monkeypatch.setattr(scheduler, "_target_date",
+                            lambda day_offset=0: tomorrow if day_offset else today)
+        await db.save_menu_items(tomorrow, ["Cơm gà", "Bún bò"])
+
+        update = _FakeCommandUpdate(1001)
+        bot = _FakeBot()
+        await open_vote_tomorrow(update, _FakeContext(bot))
+
+        dv_tomorrow = await db.get_daily_vote(tomorrow)
+        assert dv_tomorrow is not None and dv_tomorrow["status"] == "open"
+        assert await db.get_daily_vote(today) is None      # KHÔNG chạm hôm nay
+        assert bot.polls and bot.polls[0]["options"] == ["Cơm gà", "Bún bò"]
+        assert "mai" in bot.polls[0]["question"].lower()
+
+    async def test_works_without_menu_image(self, db, monkeypatch):
+        """Lệnh tay vẫn mở vote dù chưa có ảnh thực đơn (job tự động thì không)."""
+        import config
+        import scheduler
+        from handlers.vote import open_vote_tomorrow
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        tomorrow = "2026-01-06"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: tomorrow)
+        await db.save_menu_items(tomorrow, ["Cơm gà"])
+
+        bot = _FakeBot()
+        await open_vote_tomorrow(_FakeCommandUpdate(1001), _FakeContext(bot))
+        assert (await db.get_daily_vote(tomorrow))["status"] == "open"
+        assert bot.photos == []          # không có ảnh để gửi
+
+    async def test_friday_applies_bun_dau_menu(self, db, monkeypatch):
+        """Gọi tối thứ 5 cho thứ 6: tự áp menu bún đậu + wording bún đậu."""
+        import config
+        import scheduler
+        from handlers.vote import open_vote_tomorrow
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        friday = "2026-01-02"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: friday)
+        # thứ 6 tuần trước có bún đậu → nguồn kế thừa
+        await db.save_menu_items("2025-12-26", ["Bún đậu thường", "Bún đậu đầy đủ"])
+        await db.set_day_dish_prices("2025-12-26", [35000, 50000])
+        await db.set_day_ship("2025-12-26", 15000)
+
+        bot = _FakeBot()
+        await open_vote_tomorrow(_FakeCommandUpdate(1001), _FakeContext(bot))
+
+        assert await db.get_menu_items(friday) == ["Bún đậu thường", "Bún đậu đầy đủ"]
+        dv = await db.get_daily_vote(friday)
+        assert dv["status"] == "open"
+        assert dv["ship_fee"] == 15000                   # ship của ngày, không phải toàn cục
+        assert "bún đậu" in bot.polls[0]["question"].lower()
+
+    async def test_does_not_duplicate_existing_vote(self, db, monkeypatch):
+        import config
+        import scheduler
+        from handlers.vote import open_vote_tomorrow
+        monkeypatch.setattr(config, "ADMIN_IDS", {1001})
+        tomorrow = "2026-01-06"
+        monkeypatch.setattr(scheduler, "_target_date", lambda day_offset=0: tomorrow)
+        await db.create_daily_vote(tomorrow, 500, 45000, 20000)   # đã có vote mở
+
+        update = _FakeCommandUpdate(1001)
+        bot = _FakeBot()
+        await open_vote_tomorrow(update, _FakeContext(bot))
+        assert bot.polls == []                            # không gửi poll trùng
+        assert update.message.replies                     # có phản hồi cho admin
+
+    def test_command_registered(self):
+        from handlers.vote import get_handlers, open_vote_tomorrow
+        callbacks = [getattr(h, "callback", None) for h in get_handlers()]
+        assert open_vote_tomorrow in callbacks
+
+    def test_command_listed_for_admin_in_both_entrypoints(self):
+        """bot.py và main.py (prod) đều phải có lệnh trong danh sách admin."""
+        import io
+        for path in ("bot.py", "main.py"):
+            src = io.open(path, encoding="utf-8").read()
+            assert "open_vote_mai" in src, f"{path} thiếu open_vote_mai"
 
 
 class TestAssignCommand:

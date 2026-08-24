@@ -53,6 +53,10 @@ báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers
 
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (18:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (19:00), `EARLY_CLOSE_TIME` (09:30)
 
+## Mở vote bằng tay
+- **`/open_vote_mai`** — mở vote cho **ngày mai**, dùng khi job 18:00 (hoặc 20:00 T5) đã lỡ vì lúc đó chưa có ảnh thực đơn. Đi qua `scheduler.open_vote_for(bot, day_offset=1, require_image=False)` — cùng hàm với job tự động nên **tự áp menu bún đậu + ship của thứ 6 + wording đúng**; khác duy nhất: KHÔNG bắt buộc có ảnh (admin đã chủ động gõ lệnh).
+- **`/open_vote`** (hôm nay) vẫn là code riêng cũ trong `handlers/vote.py` — có Claude Vision đọc ảnh menu, nhưng **KHÔNG áp menu bún đậu thứ 6, không dùng ship của ngày, wording luôn là "Hôm nay ăn gì?"**. Mở vote thứ 6 bằng lệnh này sẽ ra sai món/giá → nên dùng `/open_vote_mai` từ tối thứ 5, hoặc để job tự động.
+
 ## Đóng vote sớm / đóng tay
 Hai đường đóng vote đều gọi **cùng một luật** trong `roles.py` (`assign_and_settle`) qua `handlers.vote.lock_vote_now(bot, date)` nên không lệch nhau — thứ 6 chỉ 1 người lấy, ngày cơm tòa nhà không phân công, freeship không cộng ship:
 - **Job `early_close` 09:30** — tự động, chỉ cho ngày `roles.closes_early(daily)` (tick `early_close` HOẶC `building_order`).

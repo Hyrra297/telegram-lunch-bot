@@ -90,6 +90,7 @@ async def run_bot(tg_app: Application) -> None:
     ]
     admin_commands = user_commands + [
         BotCommand("open_vote", "Mở vote đặt cơm hôm nay"),
+        BotCommand("open_vote_mai", "Mở vote đặt cơm cho ngày mai"),
         BotCommand("close_vote", "Đóng vote, chốt đơn cơm hôm nay"),
         BotCommand("add_member", "Thêm thành viên (reply vào tin nhắn của họ)"),
         BotCommand("remove_member", "Xoá thành viên (reply vào tin nhắn của họ)"),

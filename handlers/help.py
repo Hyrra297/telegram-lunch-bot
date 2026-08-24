@@ -28,6 +28,7 @@ ADMIN_COMMANDS = """
 *🔧 Lệnh dành cho admin:*
 /summary — Xem tổng kết đặt cơm tháng trước (hoặc /summary MM-YYYY)
 /open\\_vote — Mở vote đặt cơm hôm nay
+/open\\_vote\\_mai — Mở vote đặt cơm cho ngày mai (khi job tối đã lỡ)
 /close\\_vote — Đóng vote, chốt đơn cơm hôm nay
 /add\\_member — Thêm thành viên (reply vào tin nhắn của họ)
 /remove\\_member — Xoá thành viên (reply vào tin nhắn của họ)

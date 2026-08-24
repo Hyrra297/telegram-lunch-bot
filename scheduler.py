@@ -53,17 +53,23 @@ def _open_vote_wording(day_offset: int, date_str: str | None = None) -> dict:
     }
 
 
-async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
-    """Tạo vote cho ngày đích. day_offset=0 → hôm nay, day_offset=1 → ngày mai."""
+async def open_vote_for(bot, day_offset: int = 0, require_image: bool = True) -> str:
+    """Tạo vote cho ngày đích (day_offset=0 → hôm nay, 1 → ngày mai) và gửi vào nhóm.
+    Dùng chung cho job tự động và lệnh tay `/open_vote_mai`.
+
+    `require_image=True` (job tự động): thiếu ảnh thực đơn thì KHÔNG mở vote, chỉ
+    nhắn riêng admin. `require_image=False` (lệnh tay): admin đã chủ động gõ lệnh
+    nên mở vote kể cả chưa có ảnh.
+    Trả về câu phản hồi ngắn cho người gọi."""
     target_str = _target_date(day_offset)
     wording = _open_vote_wording(day_offset, target_str)
-    logger.info("⏰ Scheduler: open_vote triggered for %s (offset=%d)", target_str, day_offset)
+    logger.info("open_vote for %s (offset=%d, require_image=%s)", target_str, day_offset, require_image)
 
     try:
         existing = await db.get_daily_vote(target_str)
         if existing and existing["status"] in ("open", "closed"):
             logger.info("Vote already %s for %s, skipping.", existing["status"], target_str)
-            return
+            return f"Vote cho {target_str} đã {existing['status']} rồi."
 
         # Thứ 6: áp menu bún đậu mặc định nếu chưa có món, rồi đọc lại
         if _is_friday(target_str):
@@ -81,16 +87,16 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
         if _is_friday(target_str) and existing and existing["ship_fee"] is not None:
             ship_fee = existing["ship_fee"]
 
-        # Bắt buộc có ảnh thực đơn mới tạo vote — thiếu thì báo riêng admin
+        # Job tự động: bắt buộc có ảnh thực đơn mới tạo vote — thiếu thì báo riêng admin
         menu_image = existing["menu_image"] if existing else None
-        if not menu_image:
+        if not menu_image and require_image:
             await notify_admins(
-                app.bot,
+                bot,
                 f"⚠️ Chưa có ảnh thực đơn cho {wording['day_label']} ({target_str}) — "
                 f"bot chưa tạo vote. Hãy upload menu để mở vote nhé!",
             )
             logger.info("No menu image for %s — skip vote, admin notified.", target_str)
-            return
+            return f"Chưa có ảnh thực đơn cho {target_str} — chưa mở vote."
 
         # Send menu photo if available
         if menu_image:
@@ -98,7 +104,7 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
             if photo_path.exists():
                 logger.info("Sending menu photo: %s", photo_path)
                 with open(photo_path, "rb") as f:
-                    await app.bot.send_photo(
+                    await bot.send_photo(
                         chat_id=config.CHAT_ID,
                         photo=f,
                         caption=wording["caption"],
@@ -109,7 +115,7 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
         logger.info("Dishes for %s: %s", target_str, dishes)
 
         if dishes:
-            poll_msg = await app.bot.send_poll(
+            poll_msg = await bot.send_poll(
                 chat_id=config.CHAT_ID,
                 question=wording["poll_question"],
                 options=dishes,
@@ -119,8 +125,9 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
             await db.create_daily_vote(target_str, poll_msg.message_id, price, ship_fee)
             await db.set_poll_id(target_str, poll_msg.poll.id)
             logger.info("✅ Poll sent for %s (msg_id=%s)", target_str, poll_msg.message_id)
+            return f"Đã mở vote {wording['day_label']} ({target_str}) với {len(dishes)} món."
         else:
-            msg = await app.bot.send_message(
+            msg = await bot.send_message(
                 chat_id=config.CHAT_ID,
                 text=_build_vote_text([], day_label=wording["day_label"]),
                 parse_mode="Markdown",
@@ -128,8 +135,15 @@ async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
             )
             await db.create_daily_vote(target_str, msg.message_id, price, ship_fee)
             logger.info("✅ Inline vote sent for %s (msg_id=%s)", target_str, msg.message_id)
+            return f"Đã mở vote {wording['day_label']} ({target_str}) — chưa có món, dùng nút ✅/❌."
     except Exception:
         logger.exception("❌ open_vote failed for %s", target_str)
+        return f"Lỗi khi mở vote cho {target_str} — xem log."
+
+
+async def _scheduled_open_vote(app: Application, day_offset: int = 0) -> None:
+    """Job tự động: tạo vote cho ngày đích, bắt buộc phải có ảnh thực đơn."""
+    await open_vote_for(app.bot, day_offset, require_image=True)
 
 
 async def _send_vote_reminder(app: Application, date: str) -> None:

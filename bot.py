@@ -41,6 +41,7 @@ async def post_init(app: Application) -> None:
     # Lệnh admin — hiện thêm khi admin gõ /
     admin_commands = user_commands + [
         BotCommand("open_vote", "Mở vote đặt cơm hôm nay"),
+        BotCommand("open_vote_mai", "Mở vote đặt cơm cho ngày mai"),
         BotCommand("close_vote", "Đóng vote và chọn người lấy cơm"),
         BotCommand("add_member", "Thêm thành viên (reply vào tin nhắn của họ)"),
         BotCommand("remove_member", "Xoá thành viên (reply vào tin nhắn của họ)"),

@@ -191,6 +191,18 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await notify_new_voter(context.bot, full_name, len(voters), exclude_user_id=user_id)
 
 
+async def open_vote_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/open_vote_mai — mở vote cho NGÀY MAI bằng tay (dùng khi job 18:00 / 20:00 T5
+    đã lỡ vì lúc đó chưa có ảnh thực đơn). Đi qua cùng hàm với job tự động nên tự
+    áp menu bún đậu + ship của thứ 6; khác một điểm: KHÔNG bắt buộc có ảnh."""
+    if update.effective_user and update.effective_user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("Chỉ admin mới dùng được lệnh này.")
+        return
+    from scheduler import open_vote_for
+    result = await open_vote_for(context.bot, day_offset=1, require_image=False)
+    await update.message.reply_text(result)
+
+
 async def _stop_telegram_poll(bot, daily: dict) -> None:
     """Chặn vote tiếp trên Telegram: dừng native poll hoặc bỏ inline keyboard."""
     message_id = daily.get("poll_message_id")
@@ -299,6 +311,7 @@ async def handle_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 def get_handlers():
     return [
         CommandHandler("open_vote", open_vote),
+        CommandHandler("open_vote_mai", open_vote_tomorrow),
         CommandHandler("close_vote", close_vote),
         CallbackQueryHandler(handle_vote_callback, pattern=r"^vote:"),
         PollAnswerHandler(handle_poll_answer),
