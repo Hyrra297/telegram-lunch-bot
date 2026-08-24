@@ -29,7 +29,6 @@ COL_LINE = (210, 210, 210)
 COL_PAID = (27, 94, 32)       # ✓ xanh
 COL_UNPAID = (183, 28, 28)    # ✗ đỏ
 COL_TOTAL_BG = (227, 242, 253)
-TOP1_MARK = "★ "              # dấu nhấn trước tên top 1 (in đậm)
 
 # Kích thước (px ở scale 1, nhân SCALE khi vẽ)
 PAD = 24
@@ -108,23 +107,18 @@ def render_summary_image(rows, paid_ids, year_month: str) -> bytes:
     tmp = Image.new("RGB", (10, 10))
     td = ImageDraw.Draw(tmp)
 
-    def _name_disp(i, name):
-        return (TOP1_MARK + name) if i == 0 else name
-
     col_w = {}
     for key, header, _ in columns:
         w = _text_w(td, header, f_header)
         if key == "tt":
             w = max(w, _text_w(td, "✓", f_row_b))
         elif key == "name":
-            for i, d in enumerate(data):
-                f = f_row_b if i == 0 else f_row
-                w = max(w, _text_w(td, _name_disp(i, d["name"]), f))
+            for d in data:
+                w = max(w, _text_w(td, d["name"], f_row))
             w = max(w, _text_w(td, total_row["name"], f_row_b))
         else:
-            for i, d in enumerate(data):
-                f = f_row_b if i == 0 else f_row
-                w = max(w, _text_w(td, d[key], f))
+            for d in data:
+                w = max(w, _text_w(td, d[key], f_row))
             if key in ("count", "total"):
                 w = max(w, _text_w(td, total_row[key], f_row_b))
         col_w[key] = w
@@ -172,21 +166,19 @@ def render_summary_image(rows, paid_ids, year_month: str) -> bytes:
     for key, header, align in columns:
         draw_cell(header, key, y, f_header, COL_HEADER_TEXT, align)
 
-    # Data rows (zebra; hàng top 1 in đậm + ★)
+    # Data rows (zebra; mọi hàng trình bày giống nhau, không nhấn hàng đầu)
     y += row_h
     for idx, d in enumerate(data):
-        is_top = idx == 0
         if idx % 2 == 1:
             draw.rectangle([0, y, width, y + row_h], fill=COL_ROW_ALT)
-        row_font = f_row_b if is_top else f_row
+        row_font = f_row
         for key, _, align in columns:
             if key == "tt":
                 mark = "✓" if d["paid"] else "✗"
                 color = COL_PAID if d["paid"] else COL_UNPAID
                 draw_cell(mark, key, y, f_row_b, color, align)
             elif key == "name":
-                txt = (TOP1_MARK + d["name"]) if is_top else d["name"]
-                draw_cell(txt, key, y, row_font, COL_TEXT, align)
+                draw_cell(d["name"], key, y, row_font, COL_TEXT, align)
             else:
                 draw_cell(d[key], key, y, row_font, COL_TEXT, align)
         y += row_h

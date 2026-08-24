@@ -39,6 +39,30 @@ class TestRenderSummaryImage:
         assert data[:8] == PNG_MAGIC
 
 
+class TestTop1NotHighlighted:
+    """Bảng tổng kết KHÔNG nhấn hàng đầu tiên nữa (user bỏ 2026-08-24):
+    không dấu ★, cũng không in đậm — hàng 1 trình bày như mọi hàng khác."""
+
+    def _src(self):
+        import io
+        import image_summary
+        return io.open(image_summary.__file__, encoding="utf-8").read()
+
+    def test_no_star_constant(self):
+        import image_summary
+        assert not hasattr(image_summary, "TOP1_MARK")
+
+    def test_no_star_glyph_anywhere_in_module(self):
+        assert "★" not in self._src()
+
+    def test_no_bold_font_for_top1_row(self):
+        assert "is_top" not in self._src()
+
+    def test_header_and_total_still_bold(self):
+        """Font đậm vẫn dùng cho header, dòng tổng cộng và dấu ✓/✗."""
+        assert "f_row_b" in self._src()
+
+
 class TestFontFallback:
     def test_missing_font_falls_back_not_crash(self):
         """Thiếu file font → dùng font mặc định, không raise OSError."""
