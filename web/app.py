@@ -111,11 +111,12 @@ async def _apply_friday_preview(week_days: list, week_menu: dict) -> None:
         src = await db.get_friday_source(date)
         if not src or not src.get("dishes"):
             continue
-        dishes = (list(src["dishes"]) + ["", "", "", ""])[:4]
-        prices = (list(src.get("prices") or []) + [None, None, None, None])[:4]
+        n = db.MAX_DISHES
+        dishes = (list(src["dishes"]) + [""] * n)[:n]
+        prices = (list(src.get("prices") or []) + [None] * n)[:n]
         week_menu[date] = dishes
-        (day["dish1_price"], day["dish2_price"],
-         day["dish3_price"], day["dish4_price"]) = prices
+        for i, price in enumerate(prices, start=1):
+            day[f"dish{i}_price"] = price
         if src.get("ship_fee") is not None:
             day["ship_fee"] = src["ship_fee"]
         if src.get("menu_image"):
@@ -142,7 +143,7 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     week_menu = {}
     for d in week_dates:
         items = await db.get_menu_items(d)
-        week_menu[d] = items + [""] * (4 - len(items))  # pad to 4 slots
+        week_menu[d] = items + [""] * (db.MAX_DISHES - len(items))  # pad đủ số ô nhập
     await _apply_friday_preview(week_days, week_menu)
     detail = await db.get_monthly_detail(month, max_date=max_date)
 
@@ -239,10 +240,12 @@ async def save_menu_items_endpoint(
     dish2: str = Form(""),
     dish3: str = Form(""),
     dish4: str = Form(""),
+    dish5: str = Form(""),
     price1: str = Form(""),
     price2: str = Form(""),
     price3: str = Form(""),
     price4: str = Form(""),
+    price5: str = Form(""),
     ship_fee: str = Form(""),
 ):
     if not _is_admin(request):
@@ -250,7 +253,8 @@ async def save_menu_items_endpoint(
     # Ghép cặp (món, giá), lọc món rỗng để giá khớp slot sau khi dồn
     pairs = [
         (d.strip(), _parse_int(p))
-        for d, p in [(dish1, price1), (dish2, price2), (dish3, price3), (dish4, price4)]
+        for d, p in [(dish1, price1), (dish2, price2), (dish3, price3),
+                     (dish4, price4), (dish5, price5)]
         if d.strip()
     ]
     dishes = [d for d, _ in pairs]

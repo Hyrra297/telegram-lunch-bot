@@ -575,6 +575,10 @@
                 style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
               <input type="number" name="price4" placeholder="Giá" value="{{ day.dish4_price if day.dish4_price is not none else '' }}"
                 style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish5" placeholder="Món 5" value="{{ dishes[4] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="number" name="price5" placeholder="Giá" value="{{ day.dish5_price if day.dish5_price is not none else '' }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
             </div>
             <input type="number" name="ship_fee" placeholder="Ship (chia đều, để 0 nếu không)"
               value="{{ day.ship_fee if day.ship_fee is not none else '' }}"
@@ -594,6 +598,8 @@
                 style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
               <input type="text" name="dish4" placeholder="Món 4" value="{{ dishes[3] }}"
                 style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+              <input type="text" name="dish5" placeholder="Món 5" value="{{ dishes[4] }}"
+                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0;grid-column:1 / -1">
             </div>
             <button type="submit"
               style="align-self:flex-start;padding:6px 14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.82rem">

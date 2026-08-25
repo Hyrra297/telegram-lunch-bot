@@ -363,3 +363,51 @@ async def test_friday_preview_skips_when_dishes_exist(web_app):
     assert week_menu["2026-07-03"] == ["Món admin", "", "", ""]     # giữ nguyên
     assert week_days[0]["dish1_price"] == 99000
     assert "is_template_preview" not in week_days[0]
+
+
+# ── Món thứ 5 trên web ────────────────────────────────────────────────────────
+
+async def test_form_has_five_dish_inputs(web_app, admin_cookie):
+    """Mỗi ngày có 5 ô tên món; riêng thứ 6 có thêm 5 ô giá."""
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    html = resp.text
+    assert html.count('name="dish5"') == 5     # 5 ngày T2–T6
+    assert html.count('name="price5"') == 1    # chỉ thứ 6 có ô giá
+
+
+async def test_save_five_dishes_with_prices(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/save-menu-items", data={
+            "date": "2026-01-02",
+            "dish1": "A", "price1": "10000",
+            "dish2": "B", "price2": "20000",
+            "dish3": "C", "price3": "30000",
+            "dish4": "D", "price4": "40000",
+            "dish5": "E", "price5": "50000",
+        })
+    assert resp.status_code == 200
+    assert await db_mod.get_menu_items("2026-01-02") == ["A", "B", "C", "D", "E"]
+    dv = await db_mod.get_daily_vote("2026-01-02")
+    assert dv["dish5_price"] == 50000
+
+
+async def test_friday_preview_pads_to_five_slots(web_app):
+    import database as db_mod
+    from web.app import _apply_friday_preview
+    await db_mod.init_db()
+    await db_mod.save_menu_items("2026-06-26", ["A", "B", "C", "D", "E"])
+    await db_mod.set_day_dish_prices("2026-06-26", [1, 2, 3, 4, 5])
+    week_days = [{
+        "weekday": "Thứ 6", "date": "2026-07-03", "status": "none",
+        "dish1_price": None, "dish2_price": None, "dish3_price": None,
+        "dish4_price": None, "dish5_price": None, "ship_fee": None, "menu_image": None,
+    }]
+    week_menu = {"2026-07-03": ["", "", "", "", ""]}
+    await _apply_friday_preview(week_days, week_menu)
+    assert week_menu["2026-07-03"] == ["A", "B", "C", "D", "E"]
+    assert week_days[0]["dish5_price"] == 5

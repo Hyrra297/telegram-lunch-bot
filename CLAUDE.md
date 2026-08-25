@@ -87,8 +87,8 @@ Sau khi đóng sớm, job 10:30 thấy `picker_user_id` đã có (hoặc ngày t
 ```sql
 users            -- id, username, full_name, rotation_index, return_index, active
 daily_votes      -- date PK, status (open/closed/none), picker_user_id, returner_user_id,
-                 --   dish1-4, poll_id, poll_message_id, price, ship_fee, menu_image,
-                 --   dish1_price..dish4_price (nullable, giá từng món T6),
+                 --   dish1-5, poll_id, poll_message_id, price, ship_fee, menu_image,
+                 --   dish1_price..dish5_price (nullable, giá từng món T6),
                  --   building_order (0/1 — cơm tòa nhà: không phân công lấy/trả, không ship),
                  --   freeship (0/1 — bỏ tiền ship, vẫn phân công bình thường),
                  --   early_close (0/1 — đóng vote 9:30 thay vì 10:30),
@@ -103,7 +103,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 ## Tính năng đã implement
 
 ### Vote poll
-- Nếu admin nhập món ăn trong web → bot gửi native Telegram poll với tối đa 4 món
+- Nếu admin nhập món ăn trong web → bot gửi native Telegram poll với tối đa 5 món (`database.MAX_DISHES`)
 - Nếu không có món → fallback inline keyboard ✅/❌
 - `PollAnswerHandler` xử lý vote từ native poll → ghi vào `vote_entries.dish`
 
@@ -145,7 +145,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 ### Web dashboard
 
-- Tab "Tuần này": xem ai đặt, nhập 4 món cho từng ngày (admin); riêng T6 nhập **giá từng món** (`dish1_price`..`dish4_price`) + **ship** cho bún đậu (đã bỏ ô "Giá/s" đơn giá)
+- Tab "Tuần này": xem ai đặt, nhập tối đa 5 món cho từng ngày (admin); riêng T6 nhập **giá từng món** (`dish1_price`..`dish5_price`) + **ship** cho bún đậu (đã bỏ ô "Giá/s" đơn giá)
 - Tab "Tuần này" — 2 ô tick per ngày (admin, cùng endpoint `POST /toggle-day-flag` với `flag=building_order|freeship`, whitelist `db.DAY_FLAGS`):
   - **🏢 Cơm tòa nhà** (`daily_votes.building_order`) — **ô tick DUY NHẤT trên web**, gồm cả 3 tác dụng: KHÔNG phân công lấy cơm/trả hộp (round-robin không advance), KHÔNG tính ship, và đóng vote 9:30. Tin nhắn chỉ "Chốt sổ!/Vote đã đóng! N người đặt cơm." — không giải thích lý do. Ý nghĩa ghi 1 dòng ở `card-header` tab "Tuần này" (chỉ admin thấy), không lặp trong từng ô ngày.
   - `freeship` và `early_close` vẫn là cột DB + logic thật, nhưng **không còn ô tick trên web** (user bỏ 2026-08-24 vì cơm tòa nhà đã bao hàm). Muốn bật riêng cho một ngày: gọi `POST /toggle-day-flag` với `flag=freeship|early_close`, hoặc `db.set_day_flag(...)`. Endpoint và whitelist `DAY_FLAGS` vẫn nhận cả 3.

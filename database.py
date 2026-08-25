@@ -71,6 +71,8 @@ async def init_db() -> None:
             "ALTER TABLE daily_votes ADD COLUMN building_order INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE daily_votes ADD COLUMN freeship INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE daily_votes ADD COLUMN early_close INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE daily_votes ADD COLUMN dish5 TEXT",
+            "ALTER TABLE daily_votes ADD COLUMN dish5_price INTEGER",
         ]:
             try:
                 await db.execute(col_sql)
@@ -228,6 +230,7 @@ async def set_vote_closed(date: str) -> None:
 
 
 
+MAX_DISHES = 5          # so lua chon mon toi da moi ngay (dish1..dish5)
 DAY_FLAGS = ("building_order", "freeship", "early_close")
 
 
@@ -308,15 +311,15 @@ async def set_menu_image(date: str, filename: str) -> None:
 
 
 async def set_day_dish_prices(date: str, prices: list) -> None:
-    """Lưu giá cho từng món (positional dish1_price..dish4_price). None = không có giá."""
-    p = (list(prices) + [None, None, None, None])[:4]
+    """Lưu giá cho từng món (positional dish1_price..dish5_price). None = không có giá."""
+    p = (list(prices) + [None] * MAX_DISHES)[:MAX_DISHES]
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO daily_votes (date, status) VALUES (?, 'none')", (date,),
         )
         await db.execute(
-            "UPDATE daily_votes SET dish1_price=?, dish2_price=?, dish3_price=?, dish4_price=? WHERE date=?",
-            (p[0], p[1], p[2], p[3], date),
+            "UPDATE daily_votes SET dish1_price=?, dish2_price=?, dish3_price=?, dish4_price=?, dish5_price=? WHERE date=?",
+            (p[0], p[1], p[2], p[3], p[4], date),
         )
         await db.commit()
 
@@ -365,7 +368,7 @@ async def get_friday_source(date: str) -> Optional[dict]:
         if row and row.get("dish1"):
             pairs = [
                 (row[f"dish{i}"], row[f"dish{i}_price"])
-                for i in range(1, 5)
+                for i in range(1, MAX_DISHES + 1)
                 if row.get(f"dish{i}")
             ]
             return {
@@ -523,6 +526,7 @@ async def get_monthly_summary(year_month: str, max_date: str = None) -> list:
                           WHEN dv.dish2 THEN dv.dish2_price
                           WHEN dv.dish3 THEN dv.dish3_price
                           WHEN dv.dish4 THEN dv.dish4_price
+                          WHEN dv.dish5 THEN dv.dish5_price
                           ELSE NULL
                       END AS dish_price
                FROM users u
@@ -655,6 +659,7 @@ async def get_monthly_detail(year_month: str, max_date: str = None) -> dict:
                            WHEN dv.dish2 THEN dv.dish2_price
                            WHEN dv.dish3 THEN dv.dish3_price
                            WHEN dv.dish4 THEN dv.dish4_price
+                           WHEN dv.dish5 THEN dv.dish5_price
                            ELSE NULL
                        END AS dish_price
                 FROM vote_entries ve
@@ -859,6 +864,7 @@ async def get_week_data(week_dates: list) -> list:
                     "dish2_price": None,
                     "dish3_price": None,
                     "dish4_price": None,
+                    "dish5_price": None,
                     "ship_fee": None,
                     "building_order": 0,
                     "freeship": 0,
@@ -899,6 +905,7 @@ async def get_week_data(week_dates: list) -> list:
                 "dish2_price": dv["dish2_price"],
                 "dish3_price": dv["dish3_price"],
                 "dish4_price": dv["dish4_price"],
+                "dish5_price": dv["dish5_price"],
                 "ship_fee": dv["ship_fee"],
                 "building_order": dv["building_order"],
                 "freeship": dv["freeship"],
@@ -912,18 +919,15 @@ async def get_week_data(week_dates: list) -> list:
 
 async def save_menu_items(date: str, dishes: list) -> None:
     """Save up to 4 dish names for a given date. Creates placeholder row if needed."""
-    d1 = dishes[0] if len(dishes) > 0 else None
-    d2 = dishes[1] if len(dishes) > 1 else None
-    d3 = dishes[2] if len(dishes) > 2 else None
-    d4 = dishes[3] if len(dishes) > 3 else None
+    d = (list(dishes) + [None] * MAX_DISHES)[:MAX_DISHES]
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO daily_votes (date, price, status) VALUES (?, ?, 'none')",
             (date, 35000),
         )
         await db.execute(
-            "UPDATE daily_votes SET dish1=?, dish2=?, dish3=?, dish4=? WHERE date=?",
-            (d1, d2, d3, d4, date),
+            "UPDATE daily_votes SET dish1=?, dish2=?, dish3=?, dish4=?, dish5=? WHERE date=?",
+            (d[0], d[1], d[2], d[3], d[4], date),
         )
         await db.commit()
 
@@ -933,12 +937,12 @@ async def get_menu_items(date: str) -> list:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT dish1, dish2, dish3, dish4 FROM daily_votes WHERE date=?", (date,)
+            "SELECT dish1, dish2, dish3, dish4, dish5 FROM daily_votes WHERE date=?", (date,)
         ) as cur:
             row = await cur.fetchone()
     if not row:
         return []
-    return [row[k] for k in ("dish1", "dish2", "dish3", "dish4") if row[k]]
+    return [row[f"dish{i}"] for i in range(1, MAX_DISHES + 1) if row[f"dish{i}"]]
 
 
 async def vote_for_dish(date: str, user_id: int, dish: str) -> Optional[str]:
@@ -1011,13 +1015,11 @@ async def snapshot_day_costs(date: str) -> int:
         count = len(entries)
         ship = _effective_ship(dv)
         # Khớp giá theo món, ưu tiên slot ĐẦU (giống SQL CASE), bỏ qua tên None.
-        # Gán dish4→dish1 để dish1 ghi sau cùng → thắng khi trùng tên.
+        # Duyệt ngược dishN→dish1 để dish1 ghi sau cùng → thắng khi trùng tên.
         price_by_dish = {}
         for _name, _price in (
-            (dv["dish4"], dv["dish4_price"]),
-            (dv["dish3"], dv["dish3_price"]),
-            (dv["dish2"], dv["dish2_price"]),
-            (dv["dish1"], dv["dish1_price"]),
+            (dv[f"dish{i}"], dv[f"dish{i}_price"])
+            for i in range(MAX_DISHES, 0, -1)
         ):
             if _name is not None:
                 price_by_dish[_name] = _price

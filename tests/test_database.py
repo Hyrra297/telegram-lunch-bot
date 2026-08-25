@@ -714,3 +714,71 @@ class TestFridaySource:
 
     async def test_none_when_nothing(self, db):
         assert await db.get_friday_source("2026-07-03") is None
+
+
+# ── Món thứ 5 (mỗi ngày có tối đa 5 lựa chọn) ─────────────────────────────────
+
+class TestFiveDishes:
+    async def test_save_and_get_five_dishes(self, db):
+        dishes = ["Cơm gà", "Bún bò", "Cơm tấm", "Phở xào", "Mì Ý"]
+        await db.save_menu_items("2026-03-10", dishes)
+        assert await db.get_menu_items("2026-03-10") == dishes
+
+    async def test_sixth_dish_is_ignored(self, db):
+        await db.save_menu_items("2026-03-10", ["A", "B", "C", "D", "E", "F"])
+        assert await db.get_menu_items("2026-03-10") == ["A", "B", "C", "D", "E"]
+
+    async def test_five_dish_prices(self, db):
+        await db.save_menu_items("2026-01-02", ["A", "B", "C", "D", "E"])
+        await db.set_day_dish_prices("2026-01-02", [10000, 20000, 30000, 40000, 50000])
+        dv = await db.get_daily_vote("2026-01-02")
+        assert dv["dish5_price"] == 50000
+
+    async def test_week_data_exposes_dish5_price(self, db):
+        await db.create_daily_vote("2026-03-10", 100, 45000, 20000)
+        await db.set_day_dish_prices("2026-03-10", [None, None, None, None, 55000])
+        days = await db.get_week_data(["2026-03-09", "2026-03-10"])
+        assert days[0]["dish5_price"] is None      # ngày chưa có row
+        assert days[1]["dish5_price"] == 55000
+
+    async def test_monthly_summary_uses_dish5_price(self, db):
+        await db.add_user(1, "A", "a")
+        await db.create_daily_vote("2026-03-10", 100, 45000, 0)
+        await db.save_menu_items("2026-03-10", ["A", "B", "C", "D", "Món năm"])
+        await db.set_day_dish_prices("2026-03-10", [10000, 20000, 30000, 40000, 55000])
+        await db.vote_for_dish("2026-03-10", 1, "Món năm")
+        await db.set_vote_closed("2026-03-10")
+        rows = await db.get_monthly_summary("2026-03")
+        assert rows[0]["total"] == 55000
+
+    async def test_monthly_detail_uses_dish5_price(self, db):
+        await db.add_user(1, "A", "a")
+        await db.create_daily_vote("2026-03-10", 100, 45000, 0)
+        await db.save_menu_items("2026-03-10", ["A", "B", "C", "D", "Món năm"])
+        await db.set_day_dish_prices("2026-03-10", [10000, 20000, 30000, 40000, 55000])
+        await db.vote_for_dish("2026-03-10", 1, "Món năm")
+        await db.set_vote_closed("2026-03-10")
+        detail = await db.get_monthly_detail("2026-03")
+        assert detail["members"][0]["votes"]["2026-03-10"] == 55000
+
+    async def test_snapshot_locks_dish5_price(self, db):
+        import aiosqlite
+        await db.add_user(1, "A", "a")
+        await db.create_daily_vote("2026-01-02", 100, 45000, 0)
+        await db.save_menu_items("2026-01-02", ["A", "B", "C", "D", "Bún đậu VIP"])
+        await db.set_day_dish_prices("2026-01-02", [10000, 20000, 30000, 40000, 60000])
+        await db.vote_for_dish("2026-01-02", 1, "Bún đậu VIP")
+        await db.snapshot_day_costs("2026-01-02")
+        async with aiosqlite.connect(db.DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT cost FROM vote_entries WHERE date=? AND user_id=?", ("2026-01-02", 1)
+            ) as cur:
+                row = await cur.fetchone()
+        assert row[0] == 60000
+
+    async def test_friday_source_carries_five_dishes(self, db):
+        await db.save_menu_items("2025-12-26", ["A", "B", "C", "D", "E"])
+        await db.set_day_dish_prices("2025-12-26", [1, 2, 3, 4, 5])
+        src = await db.get_friday_source("2026-01-02")
+        assert src["dishes"] == ["A", "B", "C", "D", "E"]
+        assert src["prices"] == [1, 2, 3, 4, 5]
