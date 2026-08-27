@@ -497,3 +497,17 @@ async def test_quick_price_button_marked_active(web_app, admin_cookie):
     html = resp.text
     assert 'class="qbtn qbtn-on"' in html
     assert html.count('class="qbtn qbtn-on"') == 1   # đúng 1 nút đang sáng
+
+
+async def test_week_grid_columns_can_shrink(web_app, admin_cookie):
+    """Cột tuần phải dùng minmax(0, 1fr): với 1fr thuần, min-content của 5 cột
+    đẩy .week-grid rộng 1487px trong khung 1208px → phải kéo ngang mới thấy hết."""
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    html = resp.text
+    assert "grid-template-columns: repeat(5, minmax(0, 1fr));" in html
+    assert "grid-template-columns: repeat(5, 1fr);" not in html
+    # hàng món phải cho phép nút xuống dòng khi cột hẹp
+    assert html.count("flex-wrap:wrap;min-width:0") == 25   # 5 món × 5 ngày
