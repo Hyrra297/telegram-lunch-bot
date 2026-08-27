@@ -42,16 +42,51 @@ async def test_index_renders_ok(web_app, admin_cookie):
     assert resp.status_code == 200
 
 
-async def test_price_inputs_only_on_friday(web_app, admin_cookie):
-    """Ô giá/ship chỉ hiện ở thứ 6 (bún đậu). Tuần luôn gồm T2–T6 → đúng 1 thứ 6."""
+async def test_price_inputs_on_every_day(web_app, admin_cookie):
+    """Mọi ngày đều nhập được giá từng món (một số suất 50k thay vì 45k mặc định).
+    Ô ship vẫn chỉ ở thứ 6."""
     import database as db_mod
     await db_mod.init_db()
     async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
         resp = await client.get("/")
     html = resp.text
     assert html.count('name="dish1"') == 5     # cả 5 ngày đều có ô tên món
-    assert html.count('name="price1"') == 1    # chỉ thứ 6 có ô giá món
+    assert html.count('name="price1"') == 5    # cả 5 ngày đều có ô giá món
+    assert html.count('name="price5"') == 5
     assert html.count('name="ship_fee"') == 1  # chỉ thứ 6 có ô ship
+
+
+async def test_weekday_dish_price_saved_and_used(web_app, admin_cookie):
+    """Ngày thường: món để giá 50k thì người chọn món đó trả 50k, người chọn
+    món không nhập giá vẫn trả 45k mặc định."""
+    import database as db_mod
+    await db_mod.init_db()
+    tue = "2026-03-10"   # thứ 3
+    await db_mod.add_user(1, "A", "a")
+    await db_mod.add_user(2, "B", "b")
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/save-menu-items", data={
+            "date": tue,
+            "dish1": "Cơm gà", "price1": "50000",
+            "dish2": "Cơm thường", "price2": "",
+        })
+    assert resp.status_code == 200
+    dv = await db_mod.get_daily_vote(tue)
+    assert dv["dish1_price"] == 50000
+    assert dv["dish2_price"] is None      # để trống → dùng giá mặc định của ngày
+
+    await db_mod.create_daily_vote(tue, 900, 45000, 0)   # ship 0 cho dễ kiểm
+    await db_mod.save_menu_items(tue, ["Cơm gà", "Cơm thường"])
+    await db_mod.set_day_dish_prices(tue, [50000, None])
+    await db_mod.vote_for_dish(tue, 1, "Cơm gà")
+    await db_mod.vote_for_dish(tue, 2, "Cơm thường")
+    await db_mod.set_vote_closed(tue)
+
+    detail = await db_mod.get_monthly_detail("2026-03")
+    by_name = {m["full_name"]: m["votes"][tue] for m in detail["members"]}
+    assert by_name["A"] == 50000
+    assert by_name["B"] == 45000
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -368,14 +403,14 @@ async def test_friday_preview_skips_when_dishes_exist(web_app):
 # ── Món thứ 5 trên web ────────────────────────────────────────────────────────
 
 async def test_form_has_five_dish_inputs(web_app, admin_cookie):
-    """Mỗi ngày có 5 ô tên món; riêng thứ 6 có thêm 5 ô giá."""
+    """Mỗi ngày có 5 ô tên món, mỗi ô kèm 1 ô giá."""
     import database as db_mod
     await db_mod.init_db()
     async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
         resp = await client.get("/")
     html = resp.text
     assert html.count('name="dish5"') == 5     # 5 ngày T2–T6
-    assert html.count('name="price5"') == 1    # chỉ thứ 6 có ô giá
+    assert html.count('name="price5"') == 5    # mọi ngày đều nhập được giá
 
 
 async def test_save_five_dishes_with_prices(web_app, admin_cookie):

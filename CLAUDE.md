@@ -134,6 +134,8 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 ### Tính tiền
 
+- **Giá theo món áp cho MỌI ngày** (không chỉ T6): `unit = dish_price của món người đó chọn; NULL → daily_votes.price`. Admin nhập giá từng món trên web, để trống là 45k mặc định.
+
 - **T2–T5 (cơm)**: `price + round(ship_fee / voter_count)` cho mỗi ngày. Mặc định: 45,000đ + 20,000đ ship chia đều số người vote.
 - **T6 (bún đậu) — giá theo món**: mỗi người trả theo món đã chọn. Công thức: `cost = dish_price_người_đó (hoặc daily_votes.price nếu không có giá món) + round(ship_fee / voter_count)`. Trước 15h: tổng kết tính live (preview); sau 15h: đọc `vote_entries.cost` đã khoá (snapshot). Job `friday_settle` 15:00 gọi `snapshot_day_costs(date)` để khoá. Admin nhập giá từng món + ship qua web tab "Tuần này".
 - Cả `/summary` bot và web dashboard dùng cùng công thức (`get_monthly_summary` và `get_monthly_detail`).
@@ -145,7 +147,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 ### Web dashboard
 
-- Tab "Tuần này": xem ai đặt, nhập tối đa 5 món cho từng ngày (admin); riêng T6 nhập **giá từng món** (`dish1_price`..`dish5_price`) + **ship** cho bún đậu (đã bỏ ô "Giá/s" đơn giá)
+- Tab "Tuần này": xem ai đặt, nhập tối đa 5 món cho từng ngày (admin), **mỗi món có ô giá riêng** (`dish1_price`..`dish5_price`) — để trống = `daily_votes.price` (45k), dùng khi một số suất giá khác (VD 50k). Ô **ship** chỉ hiện ở T6.
 - Tab "Tuần này" — 2 ô tick per ngày (admin, cùng endpoint `POST /toggle-day-flag` với `flag=building_order|freeship`, whitelist `db.DAY_FLAGS`):
   - **🏢 Cơm tòa nhà** (`daily_votes.building_order`) — **ô tick DUY NHẤT trên web**, gồm cả 3 tác dụng: KHÔNG phân công lấy cơm/trả hộp (round-robin không advance), KHÔNG tính ship, và đóng vote 9:30. Tin nhắn chỉ "Chốt sổ!/Vote đã đóng! N người đặt cơm." — không giải thích lý do. Ý nghĩa ghi 1 dòng ở `card-header` tab "Tuần này" (chỉ admin thấy), không lặp trong từng ô ngày.
   - `freeship` và `early_close` vẫn là cột DB + logic thật, nhưng **không còn ô tick trên web** (user bỏ 2026-08-24 vì cơm tòa nhà đã bao hàm). Muốn bật riêng cho một ngày: gọi `POST /toggle-day-flag` với `flag=freeship|early_close`, hoặc `db.set_day_flag(...)`. Endpoint và whitelist `DAY_FLAGS` vẫn nhận cả 3.
