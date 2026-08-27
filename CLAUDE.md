@@ -167,6 +167,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 ## Lưu ý khi deploy
 - Fly.io: `fly.toml` đã có; `fly` CLI cần cài riêng (chưa có trên máy này)
+- **`auto_stop_machines = 'off'`** trong `fly.toml` — BẮT BUỘC. Với `'stop'`, Fly dừng máy khi web không có request → bot Telegram ngừng nhận lệnh và scheduler không chạy job (mở vote, chốt sổ). Đã bị dừng thật 2026-08-27; `min_machines_running = 1` KHÔNG ngăn được.
 - Biến môi trường bắt buộc: `BOT_TOKEN`, `CHAT_ID`, `ADMIN_IDS`
 - Biến tuỳ chọn: `ANTHROPIC_API_KEY` (Claude Vision đọc menu từ ảnh)
 - **Không commit `.env`** — chứa token thật

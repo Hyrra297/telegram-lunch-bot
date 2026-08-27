@@ -459,12 +459,12 @@ async def test_quick_price_buttons_on_every_dish(web_app, admin_cookie):
         resp = await client.get("/")
     html = resp.text
     assert html.count('onclick="setQuickPrice(') == 50   # 25 nút 45k + 25 nút 50k
-    assert html.count("data-quick=\"45000\"") == 25
-    assert html.count("data-quick=\"50000\"") == 25
-    # Ngày thường: chỉ 2 nút, giá đi kèm qua input ẩn (không có ô gõ lộ ra).
-    # Thứ 6 vẫn có ô số hiện vì bún đậu 35k không nằm trong 2 mức 45k/50k.
-    assert html.count('type="number" name="price1"') == 1   # chỉ thứ 6
-    assert html.count('type="hidden" name="price1"') == 4   # T2–T5
+    assert html.count("data-quick=\"45000\"") == 25   # mọi ngày có mức 45k
+    assert html.count("data-quick=\"50000\"") == 20   # 50k: chỉ 4 ngày thường
+    assert html.count("data-quick=\"40000\"") == 5    # 40k: chỉ thứ 6
+    # Mọi ngày chỉ có 2 nút, không còn ô gõ giá; giá đi kèm qua input ẩn
+    assert html.count('type="number" name="price1"') == 0
+    assert html.count('type="hidden" name="price1"') == 5
 
 
 async def test_quick_price_js_helper_exists(web_app, admin_cookie):
@@ -511,3 +511,32 @@ async def test_week_grid_columns_can_shrink(web_app, admin_cookie):
     assert "grid-template-columns: repeat(5, 1fr);" not in html
     # hàng món phải cho phép nút xuống dòng khi cột hẹp
     assert html.count("flex-wrap:wrap;min-width:0") == 25   # 5 món × 5 ngày
+
+
+async def test_friday_uses_40k_45k_buttons(web_app, admin_cookie):
+    """Bún đậu thứ 6 chỉ có 2 mức 40k/45k; ngày thường vẫn 45k/50k."""
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    html = resp.text
+    assert html.count('data-quick="40000"') == 5    # 5 món của riêng thứ 6
+    assert html.count('data-quick="50000"') == 20   # 4 ngày thường × 5 món
+    assert html.count('data-quick="45000"') == 25   # mọi ngày đều có mức 45k
+    assert html.count('name="ship_fee"') == 1       # ship vẫn chỉ ở thứ 6
+
+
+async def test_friday_price_button_active_at_40k(web_app, admin_cookie):
+    import database as db_mod
+    from web.app import _current_week_dates
+    await db_mod.init_db()
+    friday = _current_week_dates()[4]
+    await db_mod.save_menu_items(friday, ["Bún đậu thường"])
+    await db_mod.set_day_dish_prices(friday, [40000])
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    html = resp.text
+    assert html.count('class="qbtn qbtn-on"') == 1
+    i = html.index('class="qbtn qbtn-on"')
+    assert 'data-quick="40000"' in html[i - 200:i]

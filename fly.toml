@@ -16,7 +16,9 @@ primary_region = 'sin'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  # 'off': bot Telegram + scheduler phải chạy liên tục, không phụ thuộc traffic HTTP.
+  # Với 'stop', Fly dừng máy khi web không có request -> bot chết, job mở vote/chốt sổ không chạy.
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
   processes = ['app']
