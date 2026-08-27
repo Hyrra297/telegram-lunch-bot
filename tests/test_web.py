@@ -446,3 +446,51 @@ async def test_friday_preview_pads_to_five_slots(web_app):
     await _apply_friday_preview(week_days, week_menu)
     assert week_menu["2026-07-03"] == ["A", "B", "C", "D", "E"]
     assert week_days[0]["dish5_price"] == 5
+
+
+# ── Nút bấm nhanh 45k / 50k ───────────────────────────────────────────────────
+
+async def test_quick_price_buttons_on_every_dish(web_app, admin_cookie):
+    """Mỗi món có 2 nút 45k/50k để đỡ gõ: 5 món × 5 ngày = 25 nút mỗi loại.
+    Ô nhập số vẫn còn để gõ giá lẻ (VD ưu đãi 31.500 hay bún đậu 35.000)."""
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    html = resp.text
+    assert html.count('onclick="setQuickPrice(') == 50   # 25 nút 45k + 25 nút 50k
+    assert html.count("data-quick=\"45000\"") == 25
+    assert html.count("data-quick=\"50000\"") == 25
+    assert html.count('name="price1"') == 5         # ô gõ tay vẫn còn
+
+
+async def test_quick_price_js_helper_exists(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    assert "function setQuickPrice(" in resp.text
+
+
+async def test_quick_price_buttons_hidden_for_guests(web_app):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test") as client:
+        resp = await client.get("/")
+    assert 'onclick="setQuickPrice(' not in resp.text   # khách không thấy nút nào
+
+
+async def test_quick_price_button_marked_active(web_app, admin_cookie):
+    """Món đang để giá 50k thì nút 50k của nó sáng (qbtn-on) để biết đang chọn gì."""
+    import database as db_mod
+    from web.app import _current_week_dates
+    await db_mod.init_db()
+    day = _current_week_dates()[0]
+    await db_mod.save_menu_items(day, ["Cơm gà"])
+    await db_mod.set_day_dish_prices(day, [50000])
+
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/")
+    html = resp.text
+    assert 'class="qbtn qbtn-on"' in html
+    assert html.count('class="qbtn qbtn-on"') == 1   # đúng 1 nút đang sáng

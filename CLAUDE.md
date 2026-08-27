@@ -147,7 +147,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 ### Web dashboard
 
-- Tab "Tuần này": xem ai đặt, nhập tối đa 5 món cho từng ngày (admin), **mỗi món có ô giá riêng** (`dish1_price`..`dish5_price`) — để trống = `daily_votes.price` (45k), dùng khi một số suất giá khác (VD 50k). Ô **ship** chỉ hiện ở T6.
+- Tab "Tuần này": xem ai đặt, nhập tối đa 5 món cho từng ngày (admin), **mỗi món có ô giá riêng** (`dish1_price`..`dish5_price`) — để trống = `daily_votes.price` (45k), dùng khi một số suất giá khác (VD 50k). Ô **ship** chỉ hiện ở T6. Mỗi món có **2 nút nhanh 45k / 50k** (`setQuickPrice()`, nút đang chọn có class `qbtn-on`); bấm lại nút đang sáng = bỏ chọn về mặc định. Ô số vẫn dùng để gõ giá lẻ (35k bún đậu, 31.5k khi có ưu đãi).
 - Tab "Tuần này" — 2 ô tick per ngày (admin, cùng endpoint `POST /toggle-day-flag` với `flag=building_order|freeship`, whitelist `db.DAY_FLAGS`):
   - **🏢 Cơm tòa nhà** (`daily_votes.building_order`) — **ô tick DUY NHẤT trên web**, gồm cả 3 tác dụng: KHÔNG phân công lấy cơm/trả hộp (round-robin không advance), KHÔNG tính ship, và đóng vote 9:30. Tin nhắn chỉ "Chốt sổ!/Vote đã đóng! N người đặt cơm." — không giải thích lý do. Ý nghĩa ghi 1 dòng ở `card-header` tab "Tuần này" (chỉ admin thấy), không lặp trong từng ô ngày.
   - `freeship` và `early_close` vẫn là cột DB + logic thật, nhưng **không còn ô tick trên web** (user bỏ 2026-08-24 vì cơm tòa nhà đã bao hàm). Muốn bật riêng cho một ngày: gọi `POST /toggle-day-flag` với `flag=freeship|early_close`, hoặc `db.set_day_flag(...)`. Endpoint và whitelist `DAY_FLAGS` vẫn nhận cả 3.
