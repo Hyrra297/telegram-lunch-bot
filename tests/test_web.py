@@ -461,7 +461,10 @@ async def test_quick_price_buttons_on_every_dish(web_app, admin_cookie):
     assert html.count('onclick="setQuickPrice(') == 50   # 25 nút 45k + 25 nút 50k
     assert html.count("data-quick=\"45000\"") == 25
     assert html.count("data-quick=\"50000\"") == 25
-    assert html.count('name="price1"') == 5         # ô gõ tay vẫn còn
+    # Ngày thường: chỉ 2 nút, giá đi kèm qua input ẩn (không có ô gõ lộ ra).
+    # Thứ 6 vẫn có ô số hiện vì bún đậu 35k không nằm trong 2 mức 45k/50k.
+    assert html.count('type="number" name="price1"') == 1   # chỉ thứ 6
+    assert html.count('type="hidden" name="price1"') == 4   # T2–T5
 
 
 async def test_quick_price_js_helper_exists(web_app, admin_cookie):

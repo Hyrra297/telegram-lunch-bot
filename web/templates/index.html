@@ -569,56 +569,76 @@
           {% set dishes = week_menu[day.date] %}
           <form style="margin-top:8px;display:flex;flex-direction:column;gap:6px"
                 onsubmit="saveMenuItems(event, '{{ day.date }}')">
-            <div style="display:flex;flex-direction:column;gap:5px">
-              <input type="text" name="dish1" placeholder="Món 1" value="{{ dishes[0] }}"
-                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
+            <div style="display:flex;flex-direction:column;gap:4px">
               <div style="display:flex;gap:4px;align-items:center">
+                <input type="text" name="dish1" placeholder="Món 1" value="{{ dishes[0] }}"
+                  style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px;font-size:.8rem;min-width:0;flex:1">
                 <button type="button" data-quick="45000" onclick="setQuickPrice(this, 'price1', 45000)"
                   class="qbtn {% if day.dish1_price == 45000 %}qbtn-on{% endif %}">45k</button>
                 <button type="button" data-quick="50000" onclick="setQuickPrice(this, 'price1', 50000)"
                   class="qbtn {% if day.dish1_price == 50000 %}qbtn-on{% endif %}">50k</button>
+                {% if day.weekday == 'Thứ 6' %}
                 <input type="number" name="price1" placeholder="khác" value="{{ day.dish1_price if day.dish1_price is not none else '' }}"
-                  style="padding:6px 4px;border:1px solid #e2e8f0;border-radius:8px;font-size:.75rem;min-width:0;text-align:right;flex:1">
+                  style="padding:5px 3px;border:1px solid #e2e8f0;border-radius:7px;font-size:.72rem;width:52px;text-align:right">
+                {% else %}
+                <input type="hidden" name="price1" value="{{ day.dish1_price if day.dish1_price is not none else '' }}">
+                {% endif %}
               </div>
-              <input type="text" name="dish2" placeholder="Món 2" value="{{ dishes[1] }}"
-                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
               <div style="display:flex;gap:4px;align-items:center">
+                <input type="text" name="dish2" placeholder="Món 2" value="{{ dishes[1] }}"
+                  style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px;font-size:.8rem;min-width:0;flex:1">
                 <button type="button" data-quick="45000" onclick="setQuickPrice(this, 'price2', 45000)"
                   class="qbtn {% if day.dish2_price == 45000 %}qbtn-on{% endif %}">45k</button>
                 <button type="button" data-quick="50000" onclick="setQuickPrice(this, 'price2', 50000)"
                   class="qbtn {% if day.dish2_price == 50000 %}qbtn-on{% endif %}">50k</button>
+                {% if day.weekday == 'Thứ 6' %}
                 <input type="number" name="price2" placeholder="khác" value="{{ day.dish2_price if day.dish2_price is not none else '' }}"
-                  style="padding:6px 4px;border:1px solid #e2e8f0;border-radius:8px;font-size:.75rem;min-width:0;text-align:right;flex:1">
+                  style="padding:5px 3px;border:1px solid #e2e8f0;border-radius:7px;font-size:.72rem;width:52px;text-align:right">
+                {% else %}
+                <input type="hidden" name="price2" value="{{ day.dish2_price if day.dish2_price is not none else '' }}">
+                {% endif %}
               </div>
-              <input type="text" name="dish3" placeholder="Món 3" value="{{ dishes[2] }}"
-                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
               <div style="display:flex;gap:4px;align-items:center">
+                <input type="text" name="dish3" placeholder="Món 3" value="{{ dishes[2] }}"
+                  style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px;font-size:.8rem;min-width:0;flex:1">
                 <button type="button" data-quick="45000" onclick="setQuickPrice(this, 'price3', 45000)"
                   class="qbtn {% if day.dish3_price == 45000 %}qbtn-on{% endif %}">45k</button>
                 <button type="button" data-quick="50000" onclick="setQuickPrice(this, 'price3', 50000)"
                   class="qbtn {% if day.dish3_price == 50000 %}qbtn-on{% endif %}">50k</button>
+                {% if day.weekday == 'Thứ 6' %}
                 <input type="number" name="price3" placeholder="khác" value="{{ day.dish3_price if day.dish3_price is not none else '' }}"
-                  style="padding:6px 4px;border:1px solid #e2e8f0;border-radius:8px;font-size:.75rem;min-width:0;text-align:right;flex:1">
+                  style="padding:5px 3px;border:1px solid #e2e8f0;border-radius:7px;font-size:.72rem;width:52px;text-align:right">
+                {% else %}
+                <input type="hidden" name="price3" value="{{ day.dish3_price if day.dish3_price is not none else '' }}">
+                {% endif %}
               </div>
-              <input type="text" name="dish4" placeholder="Món 4" value="{{ dishes[3] }}"
-                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
               <div style="display:flex;gap:4px;align-items:center">
+                <input type="text" name="dish4" placeholder="Món 4" value="{{ dishes[3] }}"
+                  style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px;font-size:.8rem;min-width:0;flex:1">
                 <button type="button" data-quick="45000" onclick="setQuickPrice(this, 'price4', 45000)"
                   class="qbtn {% if day.dish4_price == 45000 %}qbtn-on{% endif %}">45k</button>
                 <button type="button" data-quick="50000" onclick="setQuickPrice(this, 'price4', 50000)"
                   class="qbtn {% if day.dish4_price == 50000 %}qbtn-on{% endif %}">50k</button>
+                {% if day.weekday == 'Thứ 6' %}
                 <input type="number" name="price4" placeholder="khác" value="{{ day.dish4_price if day.dish4_price is not none else '' }}"
-                  style="padding:6px 4px;border:1px solid #e2e8f0;border-radius:8px;font-size:.75rem;min-width:0;text-align:right;flex:1">
+                  style="padding:5px 3px;border:1px solid #e2e8f0;border-radius:7px;font-size:.72rem;width:52px;text-align:right">
+                {% else %}
+                <input type="hidden" name="price4" value="{{ day.dish4_price if day.dish4_price is not none else '' }}">
+                {% endif %}
               </div>
-              <input type="text" name="dish5" placeholder="Món 5" value="{{ dishes[4] }}"
-                style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.82rem;min-width:0">
               <div style="display:flex;gap:4px;align-items:center">
+                <input type="text" name="dish5" placeholder="Món 5" value="{{ dishes[4] }}"
+                  style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px;font-size:.8rem;min-width:0;flex:1">
                 <button type="button" data-quick="45000" onclick="setQuickPrice(this, 'price5', 45000)"
                   class="qbtn {% if day.dish5_price == 45000 %}qbtn-on{% endif %}">45k</button>
                 <button type="button" data-quick="50000" onclick="setQuickPrice(this, 'price5', 50000)"
                   class="qbtn {% if day.dish5_price == 50000 %}qbtn-on{% endif %}">50k</button>
+                {% if day.weekday == 'Thứ 6' %}
                 <input type="number" name="price5" placeholder="khác" value="{{ day.dish5_price if day.dish5_price is not none else '' }}"
-                  style="padding:6px 4px;border:1px solid #e2e8f0;border-radius:8px;font-size:.75rem;min-width:0;text-align:right;flex:1">
+                  style="padding:5px 3px;border:1px solid #e2e8f0;border-radius:7px;font-size:.72rem;width:52px;text-align:right">
+                {% else %}
+                <input type="hidden" name="price5" value="{{ day.dish5_price if day.dish5_price is not none else '' }}">
+                {% endif %}
               </div>
             </div>
             <div style="font-size:.7rem;color:#9aa5b1">Để trống giá = 45.000đ</div>
