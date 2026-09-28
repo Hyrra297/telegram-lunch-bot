@@ -751,3 +751,20 @@ class TestAdminNotifyFormats:
     def test_retracted(self):
         from admin_notify import format_retracted
         assert format_retracted("An", 2) == "❌ An vừa huỷ cơm — còn 2 người."
+
+
+# ── handlers/admin.py — skip / unskip ─────────────────────────────────────────
+
+class TestWeekDates:
+    def test_next_week_from_monday(self):
+        from datetime import date
+        from handlers.admin import _week_dates
+        dates = _week_dates(date(2026, 9, 28), "next")
+        assert [d.isoformat() for d in dates] == [
+            "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]
+
+    def test_this_week_from_wednesday(self):
+        from datetime import date
+        from handlers.admin import _week_dates
+        dates = _week_dates(date(2026, 9, 30), "this")
+        assert [d.isoformat() for d in dates] == ["2026-09-30", "2026-10-01", "2026-10-02"]

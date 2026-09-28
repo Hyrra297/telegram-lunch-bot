@@ -540,3 +540,43 @@ async def test_friday_price_button_active_at_40k(web_app, admin_cookie):
     assert html.count('class="qbtn qbtn-on"') == 1
     i = html.index('class="qbtn qbtn-on"')
     assert 'data-quick="40000"' in html[i - 200:i]
+
+
+# ── Skip / mở lại ngày ────────────────────────────────────────────────────────
+
+async def test_toggle_skip_requires_auth(web_app):
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test") as client:
+        resp = await client.post("/toggle-skip", data={"date": "2026-10-05", "skipped": "0"})
+    assert resp.status_code == 403
+
+
+async def test_toggle_skip_roundtrip(web_app, admin_cookie):
+    import database as db_mod
+    await db_mod.init_db()
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.post("/toggle-skip", data={"date": "2026-10-05", "skipped": "1"})
+        assert resp.json()["ok"] is True
+        assert db_mod.is_skipped(await db_mod.get_daily_vote("2026-10-05"))
+
+        resp = await client.post("/toggle-skip", data={"date": "2026-10-05", "skipped": "0"})
+        assert resp.json()["ok"] is True
+        assert (await db_mod.get_daily_vote("2026-10-05"))["status"] == "none"
+
+        # không còn skip → mở lại lần nữa báo lỗi
+        resp = await client.post("/toggle-skip", data={"date": "2026-10-05", "skipped": "0"})
+        assert resp.status_code == 400
+
+
+async def test_next_week_view_shows_reopen_button(web_app, admin_cookie):
+    import database as db_mod
+    from web.app import _current_week_dates
+    await db_mod.init_db()
+    next_week = _current_week_dates(1)
+    for d in next_week:
+        await db_mod.skip_day(d, 45000, 20000)
+    async with AsyncClient(transport=ASGITransport(app=web_app), base_url="http://test", cookies=admin_cookie) as client:
+        resp = await client.get("/?tab=week&week=1")
+    html = resp.text
+    assert "Thực đơn tuần sau" in html
+    assert html.count("Mở lại ngày này") == 5
+    assert html.count("Nghỉ — không đặt cơm") == 5

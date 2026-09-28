@@ -39,7 +39,8 @@ ADMIN_COMMANDS = """
 /skip\\_today — Hôm nay không đặt cơm
 /skip\\_week — Skip cả tuần sau (thêm `this` để skip tuần này)
 /skip\\_next\\_day — Skip ngày làm việc kế tiếp (bỏ qua T7/CN)
-/reopen\\_vote — Mở lại vote sau khi đã đóng
+/unskip\\_week — Mở lại tuần đã skip (thêm `this` cho tuần này)
+/unskip\\_day <ngày> — Mở lại 1 ngày đã skip (VD: 05/10)
 """.strip()
 
 

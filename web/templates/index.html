@@ -508,14 +508,18 @@
     <div class="card">
       <div class="card-header">
         <div>
-          <h2>📅 Thực đơn tuần này</h2>
+          <h2>📅 Thực đơn {{ 'tuần sau' if week else 'tuần này' }}</h2>
           {% if is_admin %}
           <p style="font-size:.78rem;color:#888;margin:4px 0 0">
             🏢 <b>Cơm tòa nhà</b> = không phân công người lấy/trả hộp · không tính tiền ship · đóng vote lúc 9:30
           </p>
           {% endif %}
         </div>
-        <span style="font-size:.85rem;color:#888">{{ week_label }}</span>
+        <span style="font-size:.85rem;color:#888;white-space:nowrap">
+          {% if week %}<a href="/?tab=week" style="color:#667eea">← Tuần này</a> · {% endif %}
+          {{ week_label }}
+          {% if not week %} · <a href="/?tab=week&week=1" style="color:#667eea">Tuần sau →</a>{% endif %}
+        </span>
       </div>
       <div class="week-grid">
         {% for day in week_days %}
@@ -527,6 +531,8 @@
 
           {% if day.status == 'open' %}
             <span class="status-badge badge-open">🟢 Đang vote</span>
+          {% elif day.skipped %}
+            <span class="status-badge badge-none">⏭️ Nghỉ — không đặt cơm</span>
           {% elif day.status == 'closed' %}
             <span class="status-badge badge-closed">✅ Đã chốt</span>
           {% else %}
@@ -553,6 +559,11 @@
 
           {# ── Upload button (admin only) ── #}
           {% if is_admin %}
+          {% if day.date >= today and (day.skipped or day.status == 'none') %}
+          <button type="button" class="upload-btn" onclick="toggleSkip('{{ day.date }}', {{ 'false' if day.skipped else 'true' }}, this)">
+            {{ '↩️ Mở lại ngày này' if day.skipped else '⏭️ Nghỉ ngày này' }}
+          </button>
+          {% endif %}
           <label title="Vẫn chốt sổ, nhưng KHÔNG phân công người lấy cơm/trả hộp, KHÔNG tính tiền ship, và đóng vote lúc 9:30"
                  style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#555;cursor:pointer;white-space:nowrap">
             <input type="checkbox" name="building_order" {% if day.building_order %}checked{% endif %}
@@ -985,6 +996,26 @@ async function toggleDayFlag(date, flag, checkbox) {
     alert('Lỗi kết nối');
   }
   checkbox.disabled = false;
+}
+
+async function toggleSkip(date, skip, btn) {
+  if (skip && !confirm('Nghỉ ngày ' + date + '? Bot sẽ không tạo vote ngày này.')) return;
+  btn.disabled = true;
+  const form = new FormData();
+  form.append('date', date);
+  form.append('skipped', skip ? '1' : '0');
+  try {
+    const res = await fetch('/toggle-skip', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.reload();
+      return;
+    }
+    alert('Lỗi: ' + (data.error || 'Không thể lưu'));
+  } catch(e) {
+    alert('Lỗi kết nối');
+  }
+  btn.disabled = false;
 }
 
 async function togglePaid(month, userId, btn) {

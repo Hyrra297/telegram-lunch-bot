@@ -229,8 +229,44 @@ async def set_vote_closed(date: str) -> None:
         await db.commit()
 
 
+async def skip_day(date: str, price: int, ship_fee: int) -> None:
+    """Đánh dấu ngày không đặt cơm: status='closed' mà không có poll."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO daily_votes (date, price, ship_fee, status)
+               VALUES (?, ?, ?, 'closed')
+               ON CONFLICT(date) DO UPDATE SET status = 'closed'""",
+            (date, price, ship_fee),
+        )
+        await db.commit()
 
-MAX_DISHES = 5          # so lua chon mon toi da moi ngay (dish1..dish5)
+
+def is_skipped(daily: Optional[dict]) -> bool:
+    """Ngày bị skip = đã đóng nhưng chưa từng có poll và chưa phân công."""
+    return bool(
+        daily
+        and daily["status"] == "closed"
+        and not daily.get("poll_message_id")
+        and not daily.get("picker_user_id")
+    )
+
+
+async def unskip_day(date: str) -> bool:
+    """Gỡ skip: trả ngày về status='none' để job tự động mở vote như thường.
+    Giữ nguyên món/giá/ảnh/cờ đã nhập. Chỉ tác động ngày thực sự bị skip —
+    ngày đã có poll hoặc đã chốt sổ thì không đụng. Trả về True nếu đã gỡ."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """UPDATE daily_votes SET status = 'none'
+               WHERE date = ? AND status = 'closed'
+                 AND poll_message_id IS NULL AND picker_user_id IS NULL""",
+            (date,),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+MAX_DISHES = 5         # so lua chon mon toi da moi ngay (dish1..dish5)
 DAY_FLAGS = ("building_order", "freeship", "early_close")
 
 
@@ -869,6 +905,7 @@ async def get_week_data(week_dates: list) -> list:
                     "building_order": 0,
                     "freeship": 0,
                     "early_close": 0,
+                    "skipped": False,
                 })
                 continue
 
@@ -910,6 +947,7 @@ async def get_week_data(week_dates: list) -> list:
                 "building_order": dv["building_order"],
                 "freeship": dv["freeship"],
                 "early_close": dv["early_close"],
+                "skipped": is_skipped(dict(dv)),
             })
 
     return results

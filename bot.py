@@ -52,6 +52,8 @@ async def post_init(app: Application) -> None:
         BotCommand("skip_today", "Hôm nay không đặt cơm"),
         BotCommand("skip_week", "Skip cả tuần sau (thêm 'this' để skip tuần này)"),
         BotCommand("skip_next_day", "Skip ngày làm việc kế tiếp (bỏ qua T7/CN)"),
+        BotCommand("unskip_week", "Mở lại tuần đã skip (thêm 'this' cho tuần này)"),
+        BotCommand("unskip_day", "Mở lại 1 ngày đã skip (VD: /unskip_day 05/10)"),
         BotCommand("assign", "Phân công lấy cơm/trả hộp thủ công"),
     ]
     for admin_id in config.ADMIN_IDS:

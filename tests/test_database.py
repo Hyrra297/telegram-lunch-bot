@@ -782,3 +782,32 @@ class TestFiveDishes:
         src = await db.get_friday_source("2026-01-02")
         assert src["dishes"] == ["A", "B", "C", "D", "E"]
         assert src["prices"] == [1, 2, 3, 4, 5]
+
+
+# ── skip / unskip ─────────────────────────────────────────────────────────────
+
+class TestSkipUnskip:
+    async def test_unskip_restores_none_and_keeps_menu(self, db):
+        await db.save_menu_items("2026-10-05", ["Cá kho"])
+        await db.skip_day("2026-10-05", 45000, 20000)
+        assert db.is_skipped(await db.get_daily_vote("2026-10-05"))
+
+        assert await db.unskip_day("2026-10-05") is True
+        dv = await db.get_daily_vote("2026-10-05")
+        assert dv["status"] == "none"
+        assert not db.is_skipped(dv)
+        assert await db.get_menu_items("2026-10-05") == ["Cá kho"]
+
+    async def test_unskip_ignores_real_closed_vote(self, db):
+        await db.create_daily_vote("2026-10-05", 999, 45000, 20000)
+        await db.set_vote_closed("2026-10-05")
+        assert await db.unskip_day("2026-10-05") is False
+        assert (await db.get_daily_vote("2026-10-05"))["status"] == "closed"
+
+    async def test_unskip_missing_day(self, db):
+        assert await db.unskip_day("2026-10-05") is False
+
+    async def test_week_data_marks_skipped(self, db):
+        await db.skip_day("2026-10-05", 45000, 20000)
+        days = await db.get_week_data(["2026-10-05", "2026-10-06"])
+        assert [d["skipped"] for d in days] == [True, False]

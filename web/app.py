@@ -85,10 +85,11 @@ def _current_month() -> str:
     return datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m")
 
 
-def _current_week_dates() -> list:
+def _current_week_dates(week: int = 0) -> list:
+    """T2–T6 của tuần hiển thị; `week=1` là tuần kế tiếp (xem/mở lại ngày tuần sau)."""
     today = datetime.now(pytz.timezone(config.TIMEZONE)).date()
     # Chủ nhật (weekday=6): hiển thị tuần sau để chuẩn bị menu
-    offset = 7 if today.weekday() == 6 else 0
+    offset = (7 if today.weekday() == 6 else 0) + 7 * week
     monday = today - timedelta(days=today.weekday()) + timedelta(days=offset)
     return [(monday + timedelta(days=i)).isoformat() for i in range(5)]
 
@@ -127,7 +128,8 @@ async def _apply_friday_preview(week_days: list, week_menu: dict) -> None:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, month: str = "", tab: str = "week"):
+async def index(request: Request, month: str = "", tab: str = "week", week: int = 0):
+    week = 1 if week == 1 else 0
     if not month:
         month = _current_month()
 
@@ -137,7 +139,7 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     summary = await db.get_monthly_summary(month, max_date=max_date)
     history = await db.get_daily_history(month)
     months = await db.get_available_months()
-    week_dates = _current_week_dates()
+    week_dates = _current_week_dates(week)
     week_days = await db.get_week_data(week_dates)
     # Load dishes for each day of the week
     week_menu = {}
@@ -170,8 +172,7 @@ async def index(request: Request, month: str = "", tab: str = "week"):
     )
 
     today = datetime.now(pytz.timezone(config.TIMEZONE)).date()
-    week_offset = 7 if today.weekday() == 6 else 0
-    monday = today - timedelta(days=today.weekday()) + timedelta(days=week_offset)
+    monday = dt_date.fromisoformat(week_dates[0])
     friday = monday + timedelta(days=4)
     week_label = f"{monday.day}/{monday.month} – {friday.day}/{friday.month}/{friday.year}"
 
@@ -199,6 +200,8 @@ async def index(request: Request, month: str = "", tab: str = "week"):
         "detail": detail,
         "paid_count": paid_count,
         "is_admin": _is_admin(request),
+        "today": today.isoformat(),
+        "week": week,
     })
 
 
@@ -342,6 +345,23 @@ async def toggle_day_flag_endpoint(
     value = enabled == "1"
     await db.set_day_flag(date, flag, value)
     return JSONResponse({"ok": True, "flag": flag, "enabled": value})
+
+
+@app.post("/toggle-skip")
+async def toggle_skip_endpoint(
+    request: Request,
+    date: str = Form(...),
+    skipped: str = Form("0"),
+):
+    """Nghỉ / mở lại một ngày (gỡ /skip_week, /skip_today bấm nhầm)."""
+    if not _is_admin(request):
+        return JSONResponse({"ok": False, "error": "Không có quyền"}, status_code=403)
+    if skipped == "1":
+        await db.skip_day(date, config.PRICE_PER_MEAL, config.SHIP_FEE)
+        return JSONResponse({"ok": True, "skipped": True})
+    if not await db.unskip_day(date):
+        return JSONResponse({"ok": False, "error": "Ngày này không bị skip (đã có vote / đã chốt)"}, status_code=400)
+    return JSONResponse({"ok": True, "skipped": False})
 
 
 @app.post("/toggle-paid")

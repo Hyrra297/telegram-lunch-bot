@@ -135,15 +135,22 @@ async def reset_vote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def skip_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tz = pytz.timezone(config.TIMEZONE)
     today = datetime.now(tz).strftime("%Y-%m-%d")
-    async with aiosqlite.connect(db.DB_PATH) as db_conn:
-        await db_conn.execute(
-            """INSERT INTO daily_votes (date, price, ship_fee, status)
-               VALUES (?, ?, ?, 'closed')
-               ON CONFLICT(date) DO UPDATE SET status = 'closed'""",
-            (today, config.PRICE_PER_MEAL, config.SHIP_FEE),
-        )
-        await db_conn.commit()
+    await db.skip_day(today, config.PRICE_PER_MEAL, config.SHIP_FEE)
     await update.message.reply_text(f"⏭️ Đã bỏ qua ngày {today} — hôm nay không đặt cơm.")
+
+
+def _week_dates(today, arg: str) -> list:
+    """Các ngày T2–T6 của tuần sau (mặc định) hoặc tuần này (`this`, từ hôm nay trở đi)."""
+    if arg == "this":
+        monday = today - timedelta(days=today.weekday())
+        start = max(monday, today)
+    else:
+        days_until_next_monday = (7 - today.weekday()) % 7 or 7
+        start = today + timedelta(days=days_until_next_monday)
+
+    week_monday = start - timedelta(days=start.weekday())
+    dates = [week_monday + timedelta(days=i) for i in range(5)]
+    return [d for d in dates if d >= start]
 
 
 @_require_admin
@@ -156,36 +163,70 @@ async def skip_week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tz = pytz.timezone(config.TIMEZONE)
     today = datetime.now(tz).date()
     arg = (context.args[0].lower() if context.args else "next")
-
-    if arg == "this":
-        monday = today - timedelta(days=today.weekday())
-        start = max(monday, today)
-    else:
-        days_until_next_monday = (7 - today.weekday()) % 7 or 7
-        start = today + timedelta(days=days_until_next_monday)
-
-    week_monday = start - timedelta(days=start.weekday())
-    dates = [week_monday + timedelta(days=i) for i in range(5)]
-    dates = [d for d in dates if d >= start]
+    dates = _week_dates(today, arg)
 
     if not dates:
         await update.message.reply_text("❌ Không có ngày nào để skip.")
         return
 
-    async with aiosqlite.connect(db.DB_PATH) as db_conn:
-        for d in dates:
-            await db_conn.execute(
-                """INSERT INTO daily_votes (date, price, ship_fee, status)
-                   VALUES (?, ?, ?, 'closed')
-                   ON CONFLICT(date) DO UPDATE SET status = 'closed'""",
-                (d.strftime("%Y-%m-%d"), config.PRICE_PER_MEAL, config.SHIP_FEE),
-            )
-        await db_conn.commit()
+    for d in dates:
+        await db.skip_day(d.strftime("%Y-%m-%d"), config.PRICE_PER_MEAL, config.SHIP_FEE)
 
     date_list = "\n".join(f"  • {d.strftime('%a %d/%m')}" for d in dates)
     await update.message.reply_text(
-        f"⏭️ Đã skip {len(dates)} ngày — tuần này/sau không đặt cơm:\n{date_list}"
+        f"⏭️ Đã skip {len(dates)} ngày — tuần này/sau không đặt cơm:\n{date_list}\n\n"
+        f"Lỡ tay? Dùng /unskip_week{' this' if arg == 'this' else ''} để mở lại."
     )
+
+
+def _unskip_hint(d, today) -> str:
+    """Nhắc mở vote tay nếu giờ job tự động của ngày đó đã qua."""
+    if d == today:
+        return " (job 8:30 đã qua → gõ /open_vote)"
+    if d == today + timedelta(days=1):
+        return " (job tối đã qua → gõ /open_vote_mai)"
+    return ""
+
+
+async def _reply_unskipped(update: Update, dates: list, today) -> None:
+    opened = [d for d in dates if await db.unskip_day(d.strftime("%Y-%m-%d"))]
+    if not opened:
+        await update.message.reply_text("ℹ️ Không có ngày nào đang bị skip.")
+        return
+    lines = "\n".join(f"  • {d.strftime('%a %d/%m')}{_unskip_hint(d, today)}" for d in opened)
+    await update.message.reply_text(
+        f"↩️ Đã mở lại {len(opened)} ngày — bot sẽ tạo vote như thường:\n{lines}"
+    )
+
+
+@_require_admin
+async def unskip_week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gỡ /skip_week: /unskip_week (tuần sau) hoặc /unskip_week this (tuần này)."""
+    tz = pytz.timezone(config.TIMEZONE)
+    today = datetime.now(tz).date()
+    arg = (context.args[0].lower() if context.args else "next")
+    await _reply_unskipped(update, _week_dates(today, arg), today)
+
+
+@_require_admin
+async def unskip_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gỡ skip 1 ngày: /unskip_day 2026-10-05 (hoặc 05/10)."""
+    tz = pytz.timezone(config.TIMEZONE)
+    today = datetime.now(tz).date()
+    if not context.args:
+        await update.message.reply_text("Dùng: /unskip_day <ngày>\nVí dụ: /unskip_day 05/10")
+        return
+    raw = context.args[0]
+    try:
+        if "/" in raw:
+            day, month = (int(x) for x in raw.split("/")[:2])
+            d = today.replace(month=month, day=day)
+        else:
+            d = datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        await update.message.reply_text("❌ Ngày không hợp lệ. Ví dụ: /unskip_day 05/10")
+        return
+    await _reply_unskipped(update, [d], today)
 
 
 def _next_working_day(today):
@@ -201,16 +242,7 @@ async def skip_next_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Skip ngày làm việc kế tiếp (today+1, bỏ qua T7/CN) — không tạo vote."""
     tz = pytz.timezone(config.TIMEZONE)
     nxt = _next_working_day(datetime.now(tz).date())
-
-    async with aiosqlite.connect(db.DB_PATH) as db_conn:
-        await db_conn.execute(
-            """INSERT INTO daily_votes (date, price, ship_fee, status)
-               VALUES (?, ?, ?, 'closed')
-               ON CONFLICT(date) DO UPDATE SET status = 'closed'""",
-            (nxt.strftime("%Y-%m-%d"), config.PRICE_PER_MEAL, config.SHIP_FEE),
-        )
-        await db_conn.commit()
-
+    await db.skip_day(nxt.strftime("%Y-%m-%d"), config.PRICE_PER_MEAL, config.SHIP_FEE)
     await update.message.reply_text(
         f"⏭️ Đã skip {nxt.strftime('%a %d/%m')} — ngày làm việc kế tiếp không đặt cơm."
     )
@@ -261,5 +293,7 @@ def get_handlers():
         CommandHandler("skip_today", skip_today),
         CommandHandler("skip_week", skip_week),
         CommandHandler("skip_next_day", skip_next_day),
+        CommandHandler("unskip_week", unskip_week),
+        CommandHandler("unskip_day", unskip_day),
         CommandHandler("assign", assign),
     ]

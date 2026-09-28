@@ -132,6 +132,11 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 - Admin dùng khi hôm nay không đặt cơm — không gửi poll, không thông báo
 - Set status = 'closed' trong daily_votes, bỏ qua round-robin
 
+### Skip / mở lại ngày
+- `/skip_today`, `/skip_next_day`, `/skip_week [this]` đều gọi `db.skip_day()` → `status='closed'`, không có poll.
+- Gỡ skip bấm nhầm: `/unskip_week [this]`, `/unskip_day 05/10`, hoặc nút **"↩️ Mở lại ngày này"** trên web (xem tuần sau qua link "Tuần sau →" = `/?week=1`). Đều gọi `db.unskip_day()` → trả về `status='none'` (giữ món/ảnh/cờ), nên job 18:00 / 20:00 T5 / 8:30 tự tạo vote như thường. Chỉ gỡ được ngày thực sự skip (`db.is_skipped`: closed + không poll + chưa phân công).
+- Nếu gỡ skip sau giờ job tự động (hôm nay sau 8:30, ngày mai sau 18:00) thì phải mở tay: `/open_vote` hoặc `/open_vote_mai`.
+
 ### Tính tiền
 
 - **Giá theo món áp cho MỌI ngày** (không chỉ T6): `unit = dish_price của món người đó chọn; NULL → daily_votes.price`. Admin nhập giá từng món trên web, để trống là 45k mặc định.
