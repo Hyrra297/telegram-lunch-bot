@@ -212,7 +212,7 @@ class TestConfig:
         import importlib
         import config as config_mod
         importlib.reload(config_mod)
-        assert config_mod.EVENING_OPEN_TIME == "18:30"
+        assert config_mod.EVENING_OPEN_TIME == "18:00"
 
 
 # ── build_scheduler ───────────────────────────────────────────────────────────
@@ -222,7 +222,8 @@ class TestBuildScheduler:
         from scheduler import build_scheduler
         sched = build_scheduler(object())  # app chỉ được lưu vào args, không gọi
         ids = {j.id for j in sched.get_jobs()}
-        assert ids == {"open_vote_evening", "open_vote_friday", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle", "early_close"}
+        assert ids == {"open_vote_evening", "morning", "announce_roles", "monthly_summary", "admin_digest", "friday_settle", "early_close"}
+        assert "open_vote_friday" not in ids  # T6 mở vote 18:00 T5 qua open_vote_evening như mọi ngày
         assert "vote_reminder" not in ids
         assert "open_vote" not in ids
 
@@ -231,19 +232,22 @@ class TestBuildScheduler:
         sched = build_scheduler(object())
         jobs = {j.id: j for j in sched.get_jobs()}
         trig = str(jobs["open_vote_evening"].trigger)
-        assert "hour='18'" in trig
-        assert "minute='30'" in trig
-        assert "day_of_week='sun,mon,tue,wed'" in trig
-        assert "thu" not in trig
+        h, m = map(int, config.EVENING_OPEN_TIME.split(":"))
+        assert f"hour='{h}'" in trig
+        assert f"minute='{m}'" in trig
+        # CN–T5: tối thứ 5 tạo vote bún đậu cho thứ 6 giống mọi ngày
+        assert "day_of_week='sun,mon-thu'" in trig
 
-    def test_digest_job_excludes_thursday(self):
+    def test_digest_job_includes_thursday(self):
         from scheduler import build_scheduler
         sched = build_scheduler(object())
         jobs = {j.id: j for j in sched.get_jobs()}
         trig = str(jobs["admin_digest"].trigger)
-        assert "hour='20'" in trig
-        assert "day_of_week='sun,mon,tue,wed'" in trig
-        assert "thu" not in trig
+        h, m = map(int, config.ADMIN_DIGEST_TIME.split(":"))
+        assert f"hour='{h}'" in trig
+        assert f"minute='{m}'" in trig
+        # CN–T5: tối thứ 5 cũng digest cho vote thứ 6 giống mọi ngày
+        assert "day_of_week='sun,mon-thu'" in trig
 
     def test_early_close_job_trigger(self):
         from scheduler import build_scheduler
@@ -279,16 +283,6 @@ class TestBuildScheduler:
         assert "hour='15'" in trig
         assert "day_of_week='fri'" in trig
 
-    def test_friday_open_job(self):
-        from scheduler import build_scheduler
-        sched = build_scheduler(object())
-        jobs = {j.id: j for j in sched.get_jobs()}
-        assert "open_vote_friday" in jobs
-        trig = str(jobs["open_vote_friday"].trigger)
-        assert "hour='20'" in trig
-        assert "minute='0'" in trig
-        assert "day_of_week='thu'" in trig
-        assert jobs["open_vote_friday"].args[1] == 1
 
 
 class TestIsFriday:

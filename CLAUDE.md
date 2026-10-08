@@ -30,20 +30,19 @@ python bot.py
 ## Lịch tự động (scheduler)
 | Giờ | Ngày | Hành động |
 |---|---|---|
-| 18:00 | CN–T4 | Tạo vote cho ngày hôm sau (T2–T5), wording "ngày mai". **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin** |
-| 20:00 | T5 | **`open_vote_friday`**: tạo vote bún đậu cho **thứ 6** (offset=1, carryover menu từ thứ 6 trước), wording "ngày mai". Thứ 6 KHÔNG digest |
-| 19:00 | CN–T4 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai. Không chạy T5 (không digest trước thứ 6) |
-| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). Thứ 6: giờ vote đã có từ 20:00 T5 → 08:30 chỉ **nhắc** như mọi ngày (job 08:30 vẫn là lưới an toàn nếu job 20:00 lỡ) |
+| 18:00 | CN–T5 | Tạo vote cho ngày hôm sau (T2–T6), wording "ngày mai". T5 tạo vote bún đậu cho thứ 6 bằng **cùng job** (`open_vote_for` tự nhận ra ngày đích là thứ 6 → carryover menu từ thứ 6 trước). **Thiếu ảnh thực đơn → KHÔNG tạo vote, nhắn riêng admin** |
+| 19:00 | CN–T5 | Digest riêng admin: danh sách + số người đã đặt cho vote ngày mai (T5 digest cho thứ 6 như mọi ngày) |
+| 08:30 | T2–T6 | Đã có vote → nhắc số người vote; chưa có → tạo vote (lưới an toàn, vẫn cần ảnh). Thứ 6 giống mọi ngày: vote đã có từ 18:00 T5 → 08:30 chỉ **nhắc** (lưới an toàn nếu job 18:00 lỡ) |
 | 09:30 | T2–T6 | **`early_close`**: CHỈ đóng vote cho ngày admin tick "⏱️ Đóng vote 9:30" (`daily_votes.early_close=1`) — gọi `lock_vote_now()` (đóng poll + phân công + tính tiền, y như 10:30 nhưng sớm hơn). Ngày không tick: không làm gì, vote mở tới 10:30 như thường. Giờ đổi qua `EARLY_CLOSE_TIME` |
 | 10:30 | T2–T5 | Đóng vote + chốt sổ + phân công lấy cơm/trả hộp + tính tiền. **Ngày tick "Cơm tòa nhà"** (`daily_votes.building_order=1`): chỉ gửi tin chốt sổ (không giải thích lý do), KHÔNG phân công lấy/trả (round-robin giữ nguyên), KHÔNG tính ship. **Ngày tick "Freeship"** (`daily_votes.freeship=1`): phân công như thường, chỉ bỏ ship |
 | 10:30 | T6 | Đóng vote + **1 picker** đi lấy bún đậu (luôn 1 người, bất kể số suất). **KHÔNG phân công trả hộp, KHÔNG tính tiền** |
 | 14:00 | Cuối tháng | Gửi tổng kết tiền cơm cả tháng (dạng ảnh) |
 | 15:00 | T6 | **`friday_settle`**: gọi `snapshot_day_costs(date)` — tính và khoá tiền từng người vào `vote_entries.cost` (mỗi người = giá món + ship/số người). Im lặng (không gửi tin) |
 
-Mọi ngày T2–T5 đều tạo vote từ 18:00 tối hôm trước (CN tạo vote cho T2). Riêng **thứ 6 là ngày bún đậu** — vote tạo lúc **20:00 tối thứ 5** (job `open_vote_friday`, carryover menu từ thứ 6 trước), KHÔNG digest. Job 08:30 thứ 6 khi đó chỉ **nhắc** số người đặt như các ngày khác (và là lưới an toàn tạo bù nếu job 20:00 lỡ).
+Mọi ngày T2–T6 đều tạo vote từ 18:00 tối hôm trước (CN tạo vote cho T2, T5 tạo vote cho T6) và digest admin lúc 19:00 — **lịch các ngày giống hệt nhau (từ 2026-10-08)**. **Thứ 6 là ngày bún đậu** chỉ khác ở nội dung: `open_vote_for` thấy ngày đích là thứ 6 → carryover menu từ thứ 6 trước, ship của ngày, wording bún đậu. Job riêng `open_vote_friday` 20:00 T5 đã bỏ.
 Ngoài ra: **sau digest gửi admin lúc 19:00 tối hôm trước**, mọi thay đổi vote cho ngày
 đó (đặt mới, đổi món, huỷ) đều được nhắn riêng admin real-time (không vào nhóm) cho tới
-khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm trước. T6: real-time notify hoạt động từ **20:00 thứ 5**–10:30 thứ 6 (sau khi vote được tạo 20:00 T5). Trước mốc digest không
+khi đóng vote 10:30 — kể cả thay đổi trong buổi tối/đêm hôm trước. T6 giống mọi ngày: real-time notify từ 19:00 thứ 5 (sau digest) tới 10:30 thứ 6. Trước mốc digest không
 báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers/vote.py`
 (so giờ với `ADMIN_DIGEST_TIME` của tối hôm trước); mẫu tin trong `admin_notify.py`.
 
@@ -54,7 +53,7 @@ báo real-time. Cổng thời gian: `_past_evening_digest(date)` trong `handlers
 Cấu hình trong `.env`: `VOTE_OPEN_TIME` (08:30), `EVENING_OPEN_TIME` (18:00), `ANNOUNCE_TIME` (10:30), `ADMIN_DIGEST_TIME` (19:00), `EARLY_CLOSE_TIME` (09:30)
 
 ## Mở vote bằng tay
-- **`/open_vote_mai`** — mở vote cho **ngày mai**, dùng khi job 18:00 (hoặc 20:00 T5) đã lỡ vì lúc đó chưa có ảnh thực đơn. Đi qua `scheduler.open_vote_for(bot, day_offset=1, require_image=False)` — cùng hàm với job tự động nên **tự áp menu bún đậu + ship của thứ 6 + wording đúng**; khác duy nhất: KHÔNG bắt buộc có ảnh (admin đã chủ động gõ lệnh).
+- **`/open_vote_mai`** — mở vote cho **ngày mai**, dùng khi job 18:00 đã lỡ vì lúc đó chưa có ảnh thực đơn. Đi qua `scheduler.open_vote_for(bot, day_offset=1, require_image=False)` — cùng hàm với job tự động nên **tự áp menu bún đậu + ship của thứ 6 + wording đúng**; khác duy nhất: KHÔNG bắt buộc có ảnh (admin đã chủ động gõ lệnh).
 - **`/open_vote`** (hôm nay) vẫn là code riêng cũ trong `handlers/vote.py` — có Claude Vision đọc ảnh menu, nhưng **KHÔNG áp menu bún đậu thứ 6, không dùng ship của ngày, wording luôn là "Hôm nay ăn gì?"**. Mở vote thứ 6 bằng lệnh này sẽ ra sai món/giá → nên dùng `/open_vote_mai` từ tối thứ 5, hoặc để job tự động.
 
 ## Đóng vote sớm / đóng tay
@@ -73,7 +72,7 @@ Sau khi đóng sớm, job 10:30 thấy `picker_user_id` đã có (hoặc ngày t
 - `config.py` — đọc `.env`
 - `database.py` — toàn bộ SQL queries
 - `roles.py` — **luật chốt sổ dùng chung**: `assign_and_settle()` (phân công + khoá tiền theo loại ngày), `cost_per_person()`, `is_friday()`, `meal_name()`. Dùng bởi scheduler 10:30, `/close_vote`, nút 🔒, `/assign` — sửa luật chỉ sửa ở đây
-- `scheduler.py` — 8 jobs: open_vote_evening (18:00 CN–T4), open_vote_friday (20:00 T5), admin_digest (19:00 CN–T4), morning (08:30 T2–T6), early_close (09:30 T2–T6), announce_roles (10:30 T2–T6), friday_settle (15:00 T6), monthly_summary (14:00)
+- `scheduler.py` — 7 jobs: open_vote_evening (18:00 CN–T5), admin_digest (19:00 CN–T5), morning (08:30 T2–T6), early_close (09:30 T2–T6), announce_roles (10:30 T2–T6), friday_settle (15:00 T6), monthly_summary (14:00)
 - `admin_notify.py` — thông báo vote riêng cho admin (digest + real-time), gửi vào chat với bot
 - `image_summary.py` — render bảng tổng kết tiền cơm thành ảnh PNG (Pillow + font DejaVuSans)
 - `handlers/vote.py` — open/close vote, poll answer, inline keyboard fallback
@@ -134,7 +133,7 @@ Migration thêm cột: vòng lặp `try/except ALTER TABLE` trong `init_db()`.
 
 ### Skip / mở lại ngày
 - `/skip_today`, `/skip_next_day`, `/skip_week [this]` đều gọi `db.skip_day()` → `status='closed'`, không có poll.
-- Gỡ skip bấm nhầm: `/unskip_week [this]`, `/unskip_day 05/10`, hoặc nút **"↩️ Mở lại ngày này"** trên web (xem tuần sau qua link "Tuần sau →" = `/?week=1`). Đều gọi `db.unskip_day()` → trả về `status='none'` (giữ món/ảnh/cờ), nên job 18:00 / 20:00 T5 / 8:30 tự tạo vote như thường. Chỉ gỡ được ngày thực sự skip (`db.is_skipped`: closed + không poll + chưa phân công).
+- Gỡ skip bấm nhầm: `/unskip_week [this]`, `/unskip_day 05/10`, hoặc nút **"↩️ Mở lại ngày này"** trên web (xem tuần sau qua link "Tuần sau →" = `/?week=1`). Đều gọi `db.unskip_day()` → trả về `status='none'` (giữ món/ảnh/cờ), nên job 18:00 / 8:30 tự tạo vote như thường. Chỉ gỡ được ngày thực sự skip (`db.is_skipped`: closed + không poll + chưa phân công).
 - Nếu gỡ skip sau giờ job tự động (hôm nay sau 8:30, ngày mai sau 18:00) thì phải mở tay: `/open_vote` hoặc `/open_vote_mai`.
 
 ### Tính tiền

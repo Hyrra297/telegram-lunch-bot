@@ -192,7 +192,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def open_vote_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/open_vote_mai — mở vote cho NGÀY MAI bằng tay (dùng khi job 18:00 / 20:00 T5
+    """/open_vote_mai — mở vote cho NGÀY MAI bằng tay (dùng khi job 18:00
     đã lỡ vì lúc đó chưa có ảnh thực đơn). Đi qua cùng hàm với job tự động nên tự
     áp menu bún đậu + ship của thứ 6; khác một điểm: KHÔNG bắt buộc có ảnh."""
     if update.effective_user and update.effective_user.id not in config.ADMIN_IDS:
